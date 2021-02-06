@@ -276,6 +276,9 @@ export default class RelatedModels {
       this._clearNode(ref, m1Key);
     }
   }
+  _exist(model, id) {
+    return id in this._records[model];
+  }
   _create(model, vals) {
     if (!('id' in vals)) {
       vals['id'] = uuid();
@@ -291,10 +294,41 @@ export default class RelatedModels {
         );
       }
       if (RELATION_TYPES.has(field.type)) {
-        this._createNode(field.relation_ref, this._getNodeKey(model, id));
+        const relation_ref = field.relation_ref;
+        const related_to = field.related_to;
+        this._createNode(relation_ref, this._getNodeKey(model, id));
         if (!vals[name]) continue;
-        const relIds = field.type === 'many2one' ? [vals[name]] : vals[name];
-        this._connect(field.relation_ref, model, id, field.related_to, relIds);
+        if (X2MANY_TYPES.has(field.type)) {
+          for (const [command, ...args] of vals[name]) {
+            let ids = [];
+            if (command === 'create') {
+              ids = args.map((_vals) => this._create(related_to, _vals).id);
+            } else if (command === 'link') {
+              ids = args.filter((id) => this._exist(related_to, id));
+            }
+            if (field.type === 'one2many') {
+              // Similar to the note in _update.
+              for (const _id of ids) {
+                this._clearConnections(
+                  relation_ref,
+                  related_to,
+                  _id,
+                  model,
+                  false
+                );
+              }
+            }
+            this._connect(relation_ref, model, id, related_to, ids);
+          }
+        } else if (field.type === 'many2one') {
+          let ids = [];
+          if (typeof vals[name] === 'object') {
+            ids = [this._create(related_to, vals[name]).id];
+          } else {
+            ids = [vals[name]].filter((id) => this._exist(related_to, id));
+          }
+          this._connect(relation_ref, model, id, related_to, ids);
+        }
       } else {
         record[name] = vals[name];
       }
@@ -318,18 +352,45 @@ export default class RelatedModels {
       if (X2MANY_TYPES.has(field.type)) {
         for (const command of vals[name]) {
           const [type, ...items] = command;
-          if (type === 'link') {
-            this._connect(relation_ref, model, id, related_to, items);
-          } else if (type === 'unlink') {
+          if (type === 'unlink') {
             this._disconnect(relation_ref, model, id, related_to, items);
           } else if (type === 'clear') {
             this._clearConnections(relation_ref, model, id, related_to, false);
+          } else {
+            let ids = [];
+            if (type === 'create') {
+              ids = items.map((_vals) => this._create(related_to, _vals).id);
+            } else if (type === 'link') {
+              ids = items.filter((id) => this._exist(related_to, id));
+            }
+            if (field.type === 'one2many') {
+              // NOTE: this is unexpected.
+              // See test: "properly connects records during updates".
+              // Perhaps there are other special cases for one2many/many2one
+              // relation.
+              for (const _id of ids) {
+                this._clearConnections(
+                  relation_ref,
+                  related_to,
+                  _id,
+                  model,
+                  false
+                );
+              }
+            }
+            this._connect(relation_ref, model, id, related_to, ids);
           }
         }
       } else if (field.type === 'many2one') {
         this._clearConnections(relation_ref, model, id, related_to, false);
         if (vals[name]) {
-          this._connect(relation_ref, model, id, related_to, [vals[name]]);
+          let ids = [];
+          if (typeof vals[name] === 'object') {
+            ids = [this._create(related_to, vals[name]).id];
+          } else {
+            ids = [vals[name]].filter((id) => this._exist(related_to, id));
+          }
+          this._connect(relation_ref, model, id, related_to, ids);
         }
       } else {
         record[name] = vals[name];
