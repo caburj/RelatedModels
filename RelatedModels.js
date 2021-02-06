@@ -317,10 +317,10 @@ export default class RelatedModels {
       const related_to = field.related_to;
       if (X2MANY_TYPES.has(field.type)) {
         for (const command of vals[name]) {
-          const { type, items } = command;
-          if (type === 'add') {
+          const [type, ...items] = command;
+          if (type === 'link') {
             this._connect(relation_ref, model, id, related_to, items);
-          } else if (type === 'remove') {
+          } else if (type === 'unlink') {
             this._disconnect(relation_ref, model, id, related_to, items);
           } else if (type === 'clear') {
             this._clearConnections(relation_ref, model, id, related_to, false);
