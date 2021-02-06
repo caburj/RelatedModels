@@ -1,0 +1,34 @@
+{
+  "name": "related-models",
+  "version": "1.0.0",
+  "description": "",
+  "main": "RelatedModels.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/caburj/RelatedModels.git"
+  },
+  "author": "Joseph Caburnay",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/caburj/RelatedModels/issues"
+  },
+  "homepage": "https://github.com/caburj/RelatedModels#readme",
+  "devDependencies": {
+    "@babel/core": "^7.9.0",
+    "@babel/preset-env": "^7.9.5",
+    "babel-jest": "^25.2.6",
+    "jest": "^25.2.7"
+  },
+  "jest": {
+    "testMatch": [
+      "**/*.test.js"
+    ]
+  },
+  "dependencies": {
+    "ramda": "^0.27.1",
+    "uuid": "^8.3.2"
+  }
+}
