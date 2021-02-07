@@ -41,251 +41,255 @@ class Changes {
   }
 }
 
-export default class RelatedModels {
-  constructor(modelDefs, onChange = (changes) => {}, initialData) {
-    const [processedModelDefs, refs] = this._processModelDefs(modelDefs);
-    this._modelDefs = processedModelDefs;
-    this._records = {};
-    this._nodes = {};
-    this._links = {};
-    for (const model in this._modelDefs) {
-      this._records[model] = {};
-    }
-    for (const ref of refs) {
-      this._nodes[ref] = {};
-      this._links[ref] = {};
-    }
-    this._changes = new Changes();
-    this._onChange = onChange;
-    if (initialData) {
-      this._loadData(initialData);
+function processModelDefs(modelDefs) {
+  modelDefs = R.clone(modelDefs);
+  for (const model in modelDefs) {
+    const fields = modelDefs[model];
+    for (const fieldName in fields) {
+      const field = fields[fieldName];
+      if (!RELATION_TYPES.has(field.type)) continue;
+      const relModelFields = modelDefs[field.related_to];
+      const relatedField = Object.keys(relModelFields).find((fieldName) => {
+        const _field = relModelFields[fieldName];
+        if (!_field.related_to) return false;
+        return (
+          _field.related_to === model &&
+          _field.relation_ref === field.relation_ref
+        );
+      });
+      if (relatedField) continue;
+      const dummyField = {
+        type: getInverseRelationType(field.type),
+        related_to: model,
+        relation_ref: field.relation_ref,
+        dummy: true,
+      };
+      const dummyFieldName =
+        dummyField.type === 'many2one'
+          ? `dummy_${model}_id`
+          : `dummy_${model}_ids`;
+      relModelFields[dummyFieldName] = dummyField;
     }
   }
-  _processModelDefs(modelDefs) {
-    modelDefs = R.clone(modelDefs);
-    for (const model in modelDefs) {
-      const fields = modelDefs[model];
-      for (const fieldName in fields) {
-        const field = fields[fieldName];
-        if (!RELATION_TYPES.has(field.type)) continue;
-        const relModelFields = modelDefs[field.related_to];
-        const relatedField = Object.keys(relModelFields).find((fieldName) => {
-          const _field = relModelFields[fieldName];
-          if (!_field.related_to) return false;
-          return (
-            _field.related_to === model &&
-            _field.relation_ref === field.relation_ref
-          );
-        });
-        if (relatedField) continue;
-        const dummyField = {
-          type: getInverseRelationType(field.type),
-          related_to: model,
-          relation_ref: field.relation_ref,
-          dummy: true,
-        };
-        const dummyFieldName =
-          dummyField.type === 'many2one'
-            ? `dummy_${model}_id`
-            : `dummy_${model}_ids`;
-        relModelFields[dummyFieldName] = dummyField;
-      }
+  const refs = new Set([]);
+  for (const model in modelDefs) {
+    const fields = modelDefs[model];
+    for (const fieldName in fields) {
+      const field = fields[fieldName];
+      if (!RELATION_TYPES.has(field.type)) continue;
+      refs.add(field.relation_ref);
     }
-    const refs = new Set([]);
-    for (const model in modelDefs) {
-      const fields = modelDefs[model];
-      for (const fieldName in fields) {
-        const field = fields[fieldName];
-        if (!RELATION_TYPES.has(field.type)) continue;
-        refs.add(field.relation_ref);
-      }
-    }
-    return [modelDefs, [...refs]];
   }
-  _loadData({ records, nodes, links }) {
+  return [modelDefs, [...refs]];
+}
+
+export default function createRelatedModels(
+  modelDefs,
+  classes,
+  onChange = () => {},
+  initialData = undefined
+) {
+  const [processedModelDefs, refs] = processModelDefs(modelDefs);
+  const data = {
+    modelDefs: processedModelDefs,
+    records: {},
+    nodes: {},
+    links: {},
+    changes: new Changes(),
+  };
+  for (const model in data.modelDefs) {
+    data.records[model] = {};
+  }
+  for (const ref of refs) {
+    data.nodes[ref] = {};
+    data.links[ref] = {};
+  }
+  if (initialData) {
+    loadData(initialData);
+  }
+
+  function loadData({ records, nodes, links }) {
     for (const item of nodes) {
-      this._nodes[item.relation_ref][item.id] = item.node;
+      data.nodes[item.relation_ref][item.id] = item.node;
     }
     for (const item of links) {
-      this._links[item.relation_ref][item.id] = item.link;
+      data.links[item.relation_ref][item.id] = item.link;
     }
     for (const item of records) {
-      this._setRecord(item.model, this._initRecord(item.model, item.record));
+      _setRecord(item.model, _initRecord(item.model, item.record));
     }
   }
-  _getFields(model) {
-    return this._modelDefs[model];
+  function _getFields(model) {
+    return data.modelDefs[model];
   }
-  _getNodeKey(model, id) {
+  function _getNodeKey(model, id) {
     return `${model}${__}${id}`;
   }
-  _createNode(ref, key) {
-    const nodes = this._nodes[ref];
+  function _createNode(ref, key) {
+    const nodes = data.nodes[ref];
     nodes[key] = new Set([]);
-    this._changes.add(makeChangeId(ref, key), {
+    data.changes.add(makeChangeId(ref, key), {
       type: 'created',
       which: 'node',
       info: { relation_ref: ref, id: key, node: nodes[key] },
     });
   }
-  _getNode(ref, key) {
-    const nodes = this._nodes[ref];
+  function _getNode(ref, key) {
+    const nodes = data.nodes[ref];
     return nodes[key];
   }
-  _addLinkOnNode(ref, key, linkId) {
-    const node = this._getNode(ref, key);
+  function _addLinkOnNode(ref, key, linkId) {
+    const node = _getNode(ref, key);
     node.add(linkId);
-    this._changes.add(makeChangeId(ref, key), {
+    data.changes.add(makeChangeId(ref, key), {
       type: 'modified',
       which: 'node',
       info: { relation_ref: ref, id: key, node },
     });
   }
-  _deleteLinkOnNode(ref, key, linkId) {
-    const node = this._getNode(ref, key);
+  function _deleteLinkOnNode(ref, key, linkId) {
+    const node = _getNode(ref, key);
     node.delete(linkId);
-    this._changes.add(makeChangeId(ref, key), {
+    data.changes.add(makeChangeId(ref, key), {
       type: 'modified',
       which: 'node',
       info: { relation_ref: ref, id: key, node },
     });
   }
-  _clearNode(ref, key) {
-    const node = this._getNode(ref, key);
+  function _clearNode(ref, key) {
+    const node = _getNode(ref, key);
     node.clear();
-    this._changes.add(makeChangeId(ref, key), {
+    data.changes.add(makeChangeId(ref, key), {
       type: 'modified',
       which: 'node',
       info: { relation_ref: ref, id: key, node },
     });
   }
-  _deleteNode(ref, key) {
-    const nodes = this._nodes[ref];
+  function _deleteNode(ref, key) {
+    const nodes = data.nodes[ref];
     const deleted = nodes[key];
     delete nodes[key];
-    this._changes.add(makeChangeId(ref, key), {
+    data.changes.add(makeChangeId(ref, key), {
       type: 'deleted',
       which: 'node',
       info: { relation_ref: ref, id: key, node: deleted },
     });
   }
-  _getLinkId(model1, id1, model2, id2) {
+  function _getLinkId(model1, id1, model2, id2) {
     return model1.localeCompare(model2) < 0
       ? `${model1}${__}${id1}${__}${model2}${__}${id2}`
       : `${model2}${__}${id2}${__}${model1}${__}${id1}`;
   }
-  _createLink(ref, model1, id1, model2, id2) {
+  function _createLink(ref, model1, id1, model2, id2) {
     const link = {
-      id: this._getLinkId(model1, id1, model2, id2),
+      id: _getLinkId(model1, id1, model2, id2),
       [model1]: id1,
       [model2]: id2,
     };
-    const links = this._links[ref];
+    const links = data.links[ref];
     links[link.id] = link;
-    this._changes.add(makeChangeId(ref, link.id), {
+    data.changes.add(makeChangeId(ref, link.id), {
       type: 'created',
       which: 'link',
       info: { relation_ref: ref, id: link.id, link },
     });
     return link;
   }
-  _getLink(ref, id) {
-    const links = this._links[ref];
+  function _getLink(ref, id) {
+    const links = data.links[ref];
     return links[id];
   }
-  _deleteLink(ref, id) {
-    const links = this._links[ref];
+  function _deleteLink(ref, id) {
+    const links = data.links[ref];
     const deleted = links[id];
     delete links[id];
-    this._changes.add(makeChangeId(ref, id), {
+    data.changes.add(makeChangeId(ref, id), {
       type: 'deleted',
       which: 'link',
       info: { relation_ref: ref, id, link: deleted },
     });
   }
-  _initRecord(model, record) {
-    const fields = this._getFields(model);
+  function _initRecord(model, record) {
+    const fields = _getFields(model);
     for (const name in fields) {
       const field = fields[name];
       if (field.dummy) continue;
       if (X2MANY_TYPES.has(field.type)) {
         Object.defineProperty(record, name, {
           get: () => {
-            const nodeKey = this._getNodeKey(model, record.id);
-            const node = this._getNode(field.relation_ref, nodeKey);
+            const nodeKey = _getNodeKey(model, record.id);
+            const node = _getNode(field.relation_ref, nodeKey);
             return [...(node || [])].map((linkId) => {
-              const link = this._getLink(field.relation_ref, linkId);
-              return this.read(field.related_to, link[field.related_to]);
+              const link = _getLink(field.relation_ref, linkId);
+              return models[field.related_to].read(link[field.related_to]);
             });
           },
         });
       } else if (field.type === 'many2one') {
         Object.defineProperty(record, name, {
           get: () => {
-            const nodeKey = this._getNodeKey(model, record.id);
-            const linkIds = [
-              ...(this._getNode(field.relation_ref, nodeKey) || []),
-            ];
+            const nodeKey = _getNodeKey(model, record.id);
+            const linkIds = [...(_getNode(field.relation_ref, nodeKey) || [])];
             const linkId = linkIds[0];
             if (!linkId) return undefined;
-            const link = this._getLink(field.relation_ref, linkId);
-            return this.read(field.related_to, link[field.related_to]);
+            const link = _getLink(field.relation_ref, linkId);
+            return models[field.related_to].read(link[field.related_to]);
           },
         });
       }
     }
     return record;
   }
-  _setRecord(model, record) {
-    this._records[model][record.id] = record;
+  function _setRecord(model, record) {
+    data.records[model][record.id] = record;
   }
-  _deleteRecord(model, id) {
-    delete this._records[model][id];
+  function _deleteRecord(model, id) {
+    delete data.records[model][id];
   }
-  _connect(ref, model1, id1, model2, id2s) {
-    const m1Key = this._getNodeKey(model1, id1);
+  function _connect(ref, model1, id1, model2, id2s) {
+    const m1Key = _getNodeKey(model1, id1);
     for (const id2 of id2s) {
-      const m2Key = this._getNodeKey(model2, id2);
-      const link = this._createLink(ref, model1, id1, model2, id2);
-      this._addLinkOnNode(ref, m1Key, link.id);
-      this._addLinkOnNode(ref, m2Key, link.id);
+      const m2Key = _getNodeKey(model2, id2);
+      const link = _createLink(ref, model1, id1, model2, id2);
+      _addLinkOnNode(ref, m1Key, link.id);
+      _addLinkOnNode(ref, m2Key, link.id);
     }
   }
-  _disconnect(ref, model1, id1, model2, id2s) {
-    const m1Key = this._getNodeKey(model1, id1);
+  function _disconnect(ref, model1, id1, model2, id2s) {
+    const m1Key = _getNodeKey(model1, id1);
     for (const id2 of id2s) {
-      const m2Key = this._getNodeKey(model2, id2);
-      const linkId2remove = this._getLinkId(model1, id1, model2, id2);
-      this._deleteLinkOnNode(ref, m1Key, linkId2remove);
-      this._deleteLinkOnNode(ref, m2Key, linkId2remove);
-      this._deleteLink(ref, linkId2remove);
+      const m2Key = _getNodeKey(model2, id2);
+      const linkId2remove = _getLinkId(model1, id1, model2, id2);
+      _deleteLinkOnNode(ref, m1Key, linkId2remove);
+      _deleteLinkOnNode(ref, m2Key, linkId2remove);
+      _deleteLink(ref, linkId2remove);
     }
   }
-  _clearConnections(ref, model1, id1, model2, deleteNode) {
-    const m1Key = this._getNodeKey(model1, id1);
-    const m1Node = this._getNode(ref, m1Key);
+  function _clearConnections(ref, model1, id1, model2, deleteNode) {
+    const m1Key = _getNodeKey(model1, id1);
+    const m1Node = _getNode(ref, m1Key);
     for (const linkId of m1Node) {
-      const link = this._getLink(ref, linkId);
-      const m2Key = this._getNodeKey(model2, link[model2]);
-      this._deleteLinkOnNode(ref, m2Key, link.id);
-      this._deleteLink(ref, link.id);
+      const link = _getLink(ref, linkId);
+      const m2Key = _getNodeKey(model2, link[model2]);
+      _deleteLinkOnNode(ref, m2Key, link.id);
+      _deleteLink(ref, link.id);
     }
     if (deleteNode) {
-      this._deleteNode(ref, m1Key);
+      _deleteNode(ref, m1Key);
     } else {
-      this._clearNode(ref, m1Key);
+      _clearNode(ref, m1Key);
     }
   }
-  _exist(model, id) {
-    return id in this._records[model];
+  function _exist(model, id) {
+    return id in data.records[model];
   }
-  _create(model, vals) {
+  function _create(model, vals) {
     if (!('id' in vals)) {
       vals['id'] = uuid();
     }
     const id = vals['id'];
-    const record = this._initRecord(model, { id });
-    const fields = this._getFields(model);
+    const record = _initRecord(model, new classes[model](model, models, id));
+    const fields = _getFields(model);
     for (const name in fields) {
       const field = fields[name];
       if (field.required && !(name in vals)) {
@@ -296,54 +300,48 @@ export default class RelatedModels {
       if (RELATION_TYPES.has(field.type)) {
         const relation_ref = field.relation_ref;
         const related_to = field.related_to;
-        this._createNode(relation_ref, this._getNodeKey(model, id));
+        _createNode(relation_ref, _getNodeKey(model, id));
         if (!vals[name]) continue;
         if (X2MANY_TYPES.has(field.type)) {
           for (const [command, ...args] of vals[name]) {
             let ids = [];
             if (command === 'create') {
-              ids = args.map((_vals) => this._create(related_to, _vals).id);
+              ids = args.map((_vals) => _create(related_to, _vals).id);
             } else if (command === 'link') {
-              ids = args.filter((id) => this._exist(related_to, id));
+              ids = args.filter((id) => _exist(related_to, id));
             }
             if (field.type === 'one2many') {
               // Similar to the note in _update.
               for (const _id of ids) {
-                this._clearConnections(
-                  relation_ref,
-                  related_to,
-                  _id,
-                  model,
-                  false
-                );
+                _clearConnections(relation_ref, related_to, _id, model, false);
               }
             }
-            this._connect(relation_ref, model, id, related_to, ids);
+            _connect(relation_ref, model, id, related_to, ids);
           }
         } else if (field.type === 'many2one') {
           let ids = [];
           if (typeof vals[name] === 'object') {
-            ids = [this._create(related_to, vals[name]).id];
+            ids = [_create(related_to, vals[name]).id];
           } else {
-            ids = [vals[name]].filter((id) => this._exist(related_to, id));
+            ids = [vals[name]].filter((id) => _exist(related_to, id));
           }
-          this._connect(relation_ref, model, id, related_to, ids);
+          _connect(relation_ref, model, id, related_to, ids);
         }
       } else {
         record[name] = vals[name];
       }
     }
-    this._setRecord(model, record);
-    this._changes.add(makeChangeId(model, id), {
+    _setRecord(model, record);
+    data.changes.add(makeChangeId(model, id), {
       type: 'created',
       which: 'record',
       info: { model, id, record },
     });
     return record;
   }
-  _update(model, id, vals) {
-    const fields = this._getFields(model);
-    const record = this.read(model, id);
+  function _update(model, id, vals) {
+    const fields = _getFields(model);
+    const record = models[model].read(id);
     for (const name in vals) {
       if (!(name in fields)) continue;
       const field = fields[name];
@@ -353,15 +351,15 @@ export default class RelatedModels {
         for (const command of vals[name]) {
           const [type, ...items] = command;
           if (type === 'unlink') {
-            this._disconnect(relation_ref, model, id, related_to, items);
+            _disconnect(relation_ref, model, id, related_to, items);
           } else if (type === 'clear') {
-            this._clearConnections(relation_ref, model, id, related_to, false);
+            _clearConnections(relation_ref, model, id, related_to, false);
           } else {
             let ids = [];
             if (type === 'create') {
-              ids = items.map((_vals) => this._create(related_to, _vals).id);
+              ids = items.map((_vals) => _create(related_to, _vals).id);
             } else if (type === 'link') {
-              ids = items.filter((id) => this._exist(related_to, id));
+              ids = items.filter((id) => _exist(related_to, id));
             }
             if (field.type === 'one2many') {
               // NOTE: this is unexpected.
@@ -369,123 +367,166 @@ export default class RelatedModels {
               // Perhaps there are other special cases for one2many/many2one
               // relation.
               for (const _id of ids) {
-                this._clearConnections(
-                  relation_ref,
-                  related_to,
-                  _id,
-                  model,
-                  false
-                );
+                _clearConnections(relation_ref, related_to, _id, model, false);
               }
             }
-            this._connect(relation_ref, model, id, related_to, ids);
+            _connect(relation_ref, model, id, related_to, ids);
           }
         }
       } else if (field.type === 'many2one') {
-        this._clearConnections(relation_ref, model, id, related_to, false);
+        _clearConnections(relation_ref, model, id, related_to, false);
         if (vals[name]) {
           let ids = [];
           if (typeof vals[name] === 'object') {
-            ids = [this._create(related_to, vals[name]).id];
+            ids = [_create(related_to, vals[name]).id];
           } else {
-            ids = [vals[name]].filter((id) => this._exist(related_to, id));
+            ids = [vals[name]].filter((id) => _exist(related_to, id));
           }
-          this._connect(relation_ref, model, id, related_to, ids);
+          _connect(relation_ref, model, id, related_to, ids);
         }
       } else {
         record[name] = vals[name];
       }
     }
-    this._changes.add(makeChangeId(model, id), {
+    data.changes.add(makeChangeId(model, id), {
       type: 'modified',
       which: 'record',
       info: { model, id, record },
     });
   }
-  _delete(model, id) {
-    const fields = this._getFields(model);
+  function _delete(model, id) {
+    const fields = _getFields(model);
     for (const name in fields) {
       const field = fields[name];
       const relation_ref = field.relation_ref;
       const related_to = field.related_to;
       if (RELATION_TYPES.has(field.type)) {
-        this._clearConnections(relation_ref, model, id, related_to, true);
+        _clearConnections(relation_ref, model, id, related_to, true);
       }
     }
-    const record = this.read(model, id);
-    this._deleteRecord(model, id);
-    this._changes.add(makeChangeId(model, id), {
+    const record = models[model].read(id);
+    _deleteRecord(model, id);
+    data.changes.add(makeChangeId(model, id), {
       type: 'deleted',
       which: 'record',
       info: { model, id, record },
     });
   }
-  create(model, vals) {
-    try {
-      const result = this._create(model, vals);
-      this._onChange(this._changes.get());
-      return result;
-    } finally {
-      this._changes.restart();
+
+  class CRUD {
+    constructor(model) {
+      this.model = model;
     }
-  }
-  createMany(model, valsList) {
-    try {
-      const result = [];
-      for (const vals of valsList) {
-        result.push(this._create(model, vals));
+    create(vals) {
+      try {
+        const result = _create(this.model, vals);
+        onChange(data.changes.get());
+        return result;
+      } finally {
+        data.changes.restart();
       }
-      this._onChange(this._changes.get());
-      return result;
-    } finally {
-      this._changes.restart();
     }
-  }
-  update(model, id, vals) {
-    try {
-      const result = this._update(model, id, vals);
-      this._onChange(this._changes.get());
-      return result;
-    } finally {
-      this._changes.restart();
-    }
-  }
-  delete(model, id) {
-    try {
-      const result = this._delete(model, id);
-      this._onChange(this._changes.get());
-      return result;
-    } finally {
-      this._changes.restart();
-    }
-  }
-  deleteMany(model, ids) {
-    try {
-      const result = [];
-      for (const id of ids) {
-        result.push(this._delete(model, id));
+    createMany(valsList) {
+      try {
+        const result = [];
+        for (const vals of valsList) {
+          result.push(_create(this.model, vals));
+        }
+        onChange(data.changes.get());
+        return result;
+      } finally {
+        data.changes.restart();
       }
-      this._onChange(this._changes.get());
-      return result;
-    } finally {
-      this._changes.restart();
+    }
+    update(id, vals) {
+      try {
+        const result = _update(this.model, id, vals);
+        onChange(data.changes.get());
+        return result;
+      } finally {
+        data.changes.restart();
+      }
+    }
+    delete(id) {
+      try {
+        const result = _delete(this.model, id);
+        onChange(data.changes.get());
+        return result;
+      } finally {
+        data.changes.restart();
+      }
+    }
+    deleteMany(ids) {
+      try {
+        const result = [];
+        for (const id of ids) {
+          result.push(_delete(this.model, id));
+        }
+        onChange(data.changes.get());
+        return result;
+      } finally {
+        data.changes.restart();
+      }
+    }
+    read(id) {
+      if (!(this.model in data.records)) return;
+      return data.records[this.model][id];
+    }
+    readAll() {
+      return Object.values(data.records[this.model]);
+    }
+    readMany(ids) {
+      if (!(this.model in data.records)) return [];
+      return ids.map((id) => data.records[this.model][id]);
+    }
+    find(predicate) {
+      return Object.values(data.records[this.model]).find(predicate);
+    }
+    findAll(predicate) {
+      return Object.values(data.records[this.model]).filter(predicate);
     }
   }
-  read(model, id) {
-    if (!(model in this._records)) return;
-    return this._records[model][id];
+  const models = {};
+  for (const model in modelDefs) {
+    models[model] = new CRUD(model);
   }
-  readAll(model) {
-    return Object.values(this._records[model]);
+  return models;
+}
+
+export class BaseModel {
+  constructor(name, env, id) {
+    this.name = name;
+    this.env = env;
+    this.id = id;
   }
-  readMany(model, ids) {
-    if (!(model in this._records)) return [];
-    return ids.map((id) => this._records[model][id]);
+  create(vals) {
+    return this.env[this.name].create(vals);
   }
-  find(model, predicate) {
-    return Object.values(this._records[model]).find(predicate);
+  createMany(valsList) {
+    return this.env[this.name].createMany(valsList);
   }
-  findAll(model, predicate) {
-    return Object.values(this._records[model]).filter(predicate);
+  update(id, vals) {
+    return this.env[this.name].update(id, vals);
+  }
+  delete(id) {
+    return this.env[this.name].delete(id);
+  }
+  deleteMany(ids) {
+    return this.env[this.name].deleteMany(ids);
+  }
+  read(id) {
+    return this.env[this.name].read(id);
+  }
+  readAll() {
+    return this.env[this.name].readAll();
+  }
+  readMany(ids) {
+    return this.env[this.name].readMany(ids);
+  }
+  find(predicate) {
+    return this.env[this.name].find(predicate);
+  }
+  findAll(predicate) {
+    return this.env[this.name].findAll(predicate);
   }
 }
