@@ -53,11 +53,17 @@ function createRelation(field1, field2) {
       models: [field1.related_to, field2.related_to].sort(),
     };
   } else {
-    const [many, one] =
+    const [single, multi] =
       field1.type === 'one2many'
         ? [field1.related_to, field2.related_to]
-        : [field2.related_to, field2.related_to];
-    return { type: 'many2one', relation_ref, many, one };
+        : [field2.related_to, field1.related_to];
+    return {
+      type: 'many2one',
+      relation_ref,
+      single,
+      multi,
+      nodeType: { [single]: 'single', [multi]: 'multi' },
+    };
   }
 }
 
@@ -163,9 +169,18 @@ export default function createRelatedModels(
   }
   function _createNode(relation, record) {
     const ref = relation.relation_ref;
-    const key = record.__meta__.nodeKey;
+    const { model, nodeKey: key } = record.__meta__;
     const nodes = data.nodes[ref];
-    nodes[key] = new Set([]);
+    if (relation.type === 'many2one') {
+      const nodeType = relation.nodeType[model];
+      if (nodeType === 'single') {
+        nodes[key] = { value: undefined, type: 'single' };
+      } else if (nodeType === 'multi') {
+        nodes[key] = { value: new Set([]), type: 'multi' };
+      }
+    } else {
+      nodes[key] = { value: new Set([]), type: 'multi' };
+    }
     data.changes.add(makeChangeId(ref, key), {
       type: 'created',
       which: 'node',
@@ -182,7 +197,11 @@ export default function createRelatedModels(
     const key = record.__meta__.nodeKey;
     const ref = relation.relation_ref;
     const node = _getNode(relation, record);
-    node.add(linkId);
+    if (node.type === 'single') {
+      node.value = linkId;
+    } else if (node.type === 'multi') {
+      node.value.add(linkId);
+    }
     data.changes.add(makeChangeId(ref, key), {
       type: 'modified',
       which: 'node',
@@ -193,7 +212,11 @@ export default function createRelatedModels(
     const key = record.__meta__.nodeKey;
     const ref = relation.relation_ref;
     const node = _getNode(relation, record);
-    node.delete(linkId);
+    if (node.type === 'single' && node.value === linkId) {
+      node.value = undefined;
+    } else if (node.type === 'multi') {
+      node.value.delete(linkId);
+    }
     data.changes.add(makeChangeId(ref, key), {
       type: 'modified',
       which: 'node',
@@ -204,7 +227,11 @@ export default function createRelatedModels(
     const key = record.__meta__.nodeKey;
     const ref = relation.relation_ref;
     const node = _getNode(relation, record);
-    node.clear();
+    if (node.type === 'single') {
+      node.value = undefined;
+    } else if (node.type === 'multi') {
+      node.value.clear();
+    }
     data.changes.add(makeChangeId(ref, key), {
       type: 'modified',
       which: 'node',
@@ -273,7 +300,7 @@ export default function createRelatedModels(
         Object.defineProperty(record, name, {
           get: () => {
             const node = _getNode(field.relation, record);
-            return [...(node || [])].map((linkId) => {
+            return [...(node?.value || [])].map((linkId) => {
               const link = _getLink(field.relation, linkId);
               return models[field.related_to].read(link[field.related_to]);
             });
@@ -282,10 +309,9 @@ export default function createRelatedModels(
       } else if (field.type === 'many2one') {
         Object.defineProperty(record, name, {
           get: () => {
-            const linkIds = [...(_getNode(field.relation, record) || [])];
-            const linkId = linkIds[0];
-            if (!linkId) return undefined;
-            const link = _getLink(field.relation, linkId);
+            const node = _getNode(field.relation, record);
+            if (!node?.value) return undefined;
+            const link = _getLink(field.relation, node.value);
             return models[field.related_to].read(link[field.related_to]);
           },
         });
@@ -305,6 +331,20 @@ export default function createRelatedModels(
   }
   function _connect(relation, record1, otherRecords) {
     for (const record2 of otherRecords) {
+      if (relation.type === 'many2one') {
+        const singleRecord = {
+          [record1.__meta__.model]: record1,
+          [record2.__meta__.model]: record2,
+        }[relation.single];
+        const singleNode = _getNode(relation, singleRecord);
+        if (singleNode.value) {
+          const connectedLink = _getLink(relation, singleNode.value);
+          const connectedMultiRecord = models[relation.multi].read(
+            connectedLink[relation.multi]
+          );
+          _disconnect(relation, singleRecord, [connectedMultiRecord]);
+        }
+      }
       const link = _createLink(relation, record1, record2);
       _addLinkOnNode(relation, record1, link.id);
       _addLinkOnNode(relation, record2, link.id);
@@ -320,7 +360,8 @@ export default function createRelatedModels(
   }
   function _clearConnections(relation, record1, model2, deleteNode) {
     const m1Node = _getNode(relation, record1);
-    for (const linkId of m1Node) {
+    const linkIds = m1Node.type === 'single' ? [m1Node.value] : m1Node.value;
+    for (const linkId of linkIds) {
       const link = _getLink(relation, linkId);
       const record2 = models[model2].read(link[model2]);
       _deleteLinkOnNode(relation, record2, link.id);
@@ -362,13 +403,6 @@ export default function createRelatedModels(
               ids = args.map((_vals) => _create(related_to, _vals).id);
             } else if (command === 'link') {
               ids = args.filter((id) => _exist(related_to, id));
-            }
-            if (field.type === 'one2many') {
-              // Similar to the note in _update.
-              for (const _id of ids) {
-                const record = models[related_to].read(_id);
-                _clearConnections(relation, record, model, false);
-              }
             }
             const record1 = models[model].read(id);
             const otherRecords = models[related_to].readMany(ids);
@@ -421,24 +455,12 @@ export default function createRelatedModels(
             } else if (type === 'link') {
               ids = items.filter((id) => _exist(related_to, id));
             }
-            if (field.type === 'one2many') {
-              // NOTE: this is unexpected.
-              // See test: "properly connects records during updates".
-              // Perhaps there are other special cases for one2many/many2one
-              // relation.
-              for (const _id of ids) {
-                const record = models[related_to].read(_id);
-                _clearConnections(relation, record, model, false);
-              }
-            }
             const record1 = models[model].read(id);
             const otherRecords = models[related_to].readMany(ids);
             _connect(relation, record1, otherRecords);
           }
         }
       } else if (field.type === 'many2one') {
-        const record = models[model].read(id);
-        _clearConnections(relation, record, related_to, false);
         if (vals[name]) {
           let ids = [];
           if (typeof vals[name] === 'object') {
@@ -449,6 +471,8 @@ export default function createRelatedModels(
           const record1 = models[model].read(id);
           const otherRecords = models[related_to].readMany(ids);
           _connect(relation, record1, otherRecords);
+        } else {
+          _clearConnections(relation, record, related_to, false);
         }
       } else {
         record[name] = vals[name];
@@ -461,17 +485,16 @@ export default function createRelatedModels(
     });
   }
   function _delete(model, id) {
+    const record = models[model].read(id);
     const fields = _getFields(model);
     for (const name in fields) {
       const field = fields[name];
       const related_to = field.related_to;
       const relation = field.relation;
       if (RELATION_TYPES.has(field.type)) {
-        const record = models[model].read(id);
         _clearConnections(relation, record, related_to, true);
       }
     }
-    const record = models[model].read(id);
     _deleteRecord(model, id);
     data.changes.add(makeChangeId(model, id), {
       type: 'deleted',

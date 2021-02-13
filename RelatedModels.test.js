@@ -177,8 +177,7 @@ describe('one2many/many2one', () => {
     });
     it('properly connects records during updates', () => {
       // NOTE: This test reveals a special property of
-      // many2one/one2many relationship. Looks like I can't
-      // generalize x2many fields.
+      // many2one/one2many relationship.
       const orderline1 = models.orderline.create({
         product_id: product1.id,
         quantity: 1,
@@ -200,6 +199,35 @@ describe('one2many/many2one', () => {
       });
       expect(order1.orderline_ids.length).toBe(2);
       expect(order2.orderline_ids.length).toBe(0);
+    });
+    it('properly creates records for one2many fields', () => {
+      const order = models.order.create({
+        orderline_ids: [
+          [
+            'create',
+            { product_id: product1.id, quantity: 1 },
+            { product_id: product2.id, quantity: 2 },
+          ],
+        ],
+      });
+      expect(order.orderline_ids.length).toBe(2);
+      for (const orderline of order.orderline_ids) {
+        expect(orderline.order_id).toBe(order);
+      }
+    });
+    it('properly creates and links records for one2many fields', () => {
+      const orderline = models.orderline.create({
+        product_id: product1.id,
+        quantity: 1,
+      });
+      const order = models.order.create({
+        orderline_ids: [
+          ['link', orderline.id],
+          ['create', { product_id: product2.id, quantity: 2 }],
+        ],
+      });
+      expect(orderline.order_id).toBe(order);
+      expect(order.orderline_ids.length).toBe(2);
     });
   });
   describe('update', () => {
@@ -342,11 +370,14 @@ describe('one2many/many2one', () => {
       expect(orderline.order_id).toBe(undefined);
       models.orderline.update(orderline.id, { order_id: order1.id });
       expect(orderline.order_id).toBe(order1);
+      expect(order1.orderline_ids).toEqual([orderline]);
       models.orderline.update(orderline.id, { order_id: false });
       expect(orderline.order_id).toBe(undefined);
       models.orderline.update(orderline.id, { order_id: order2.id });
       expect(orderline.order_id).toBe(order2);
+      expect(order2.orderline_ids).toEqual([orderline]);
       models.orderline.update(orderline.id, { order_id: {} });
+      expect(orderline.order_id).not.toBe(order1);
       expect(orderline.order_id).not.toBe(order2);
     });
     it('should not remove many2one link when many2one field is not part of update', () => {
@@ -404,7 +435,7 @@ describe('one2many/many2one', () => {
       });
     });
     it('removes reference to order after orderline is deleted 1', () => {
-      models.orderline.delete([orderline1.id]);
+      models.orderline.delete(orderline1.id);
       expect(order1.orderline_ids.includes(orderline1)).toBe(false);
       expect(orderline1.order_id).toBe(undefined);
     });

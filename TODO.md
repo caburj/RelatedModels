@@ -8,6 +8,8 @@
   - [ ] one2many is really a special case, can't be generalize with many2many
   - [ ] Missing tests to some methods such as find.
   - [ ] organize the tests
+- [ ] Don't use `read` method, use `_getRecord`. We need the prevent coupling of
+  the result `models` to the implementation.
 
 ## DONE
 
