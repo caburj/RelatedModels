@@ -423,6 +423,25 @@ describe('one2many/many2one', () => {
       const order = orderline.order_id;
       expect(order.orderline_ids).toEqual([orderline]);
     });
+    it('clears the one2many field', () => {
+      const order = models.order.create({
+        orderline_ids: [
+          [
+            'create',
+            { product_id: product1.id, quantity: 1 },
+            { product_id: product2.id, quantity: 2 },
+          ],
+        ],
+      });
+      const [ol1, ol2] = order.orderline_ids;
+      expect(ol1.order_id).toBe(order);
+      expect(ol2.order_id).toBe(order);
+      expect(order.orderline_ids.length).toBe(2);
+      models.order.update(order.id, { orderline_ids: [['clear']] });
+      expect(ol1.order_id).toBe(undefined);
+      expect(ol2.order_id).toBe(undefined);
+      expect(order.orderline_ids.length).toBe(0);
+    });
   });
   describe('delete', () => {
     let order1, orderline1;
@@ -782,6 +801,22 @@ describe('many2many without corresponding relation_ref', () => {
     );
     models.tax.deleteMany([tax2.id, tax3.id]);
     expect(orderline1.tax_ids.map((tax) => tax.id)).toEqual([tax1.id]);
+  });
+  it('clears the many2many field', () => {
+    const tag = models.tag.create({
+      name: 'tag',
+      product_ids: [
+        ['create', { name: 'p1', price: 2 }, { name: 'p2', price: 4 }],
+      ],
+    });
+    const [p1, p2] = tag.product_ids;
+    expect(p1.tag_ids).toEqual([tag]);
+    expect(p2.tag_ids).toEqual([tag]);
+    expect(tag.product_ids.length).toBe(2);
+    models.tag.update(tag.id, { product_ids: [['clear']] });
+    expect(p1.tag_ids).toEqual([]);
+    expect(p2.tag_ids).toEqual([]);
+    expect(tag.product_ids.length).toBe(0);
   });
 });
 

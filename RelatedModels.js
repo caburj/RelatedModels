@@ -153,6 +153,7 @@ export default function createRelatedModels(
     loadData(initialData);
   }
 
+  // TODO: This might be outdated already.
   function loadData({ records, nodes, links }) {
     for (const item of nodes) {
       data.nodes[item.relation_ref][item.id] = item.node;
@@ -317,10 +318,6 @@ export default function createRelatedModels(
         });
       }
     }
-    record.__meta__ = {
-      model,
-      nodeKey: `${model}${__}${record.id}`,
-    };
     return record;
   }
   function _setRecord(model, record) {
@@ -364,6 +361,7 @@ export default function createRelatedModels(
     for (const linkId of linkIds) {
       const link = _getLink(relation, linkId);
       const record2 = models[model2].read(link[model2]);
+      // link is not deleted in record1 here because it is later deleted/cleared.
       _deleteLinkOnNode(relation, record2, link.id);
       _deleteLink(relation, link.id);
     }
@@ -398,26 +396,27 @@ export default function createRelatedModels(
         if (!vals[name]) continue;
         if (X2MANY_TYPES.has(field.type)) {
           for (const [command, ...args] of vals[name]) {
-            let ids = [];
             if (command === 'create') {
-              ids = args.map((_vals) => _create(related_to, _vals).id);
+              const newRecords = args.map((_vals) =>
+                _create(related_to, _vals)
+              );
+              _connect(relation, record, newRecords);
             } else if (command === 'link') {
-              ids = args.filter((id) => _exist(related_to, id));
+              const existingIds = args.filter((id) => _exist(related_to, id));
+              const existingRecords = models[related_to].readMany(existingIds);
+              _connect(relation, record, existingRecords);
             }
-            const record1 = models[model].read(id);
-            const otherRecords = models[related_to].readMany(ids);
-            _connect(relation, record1, otherRecords);
           }
         } else if (field.type === 'many2one') {
-          let ids = [];
           if (typeof vals[name] === 'object') {
-            ids = [_create(related_to, vals[name]).id];
+            const newRecord = _create(related_to, vals[name]);
+            _connect(relation, record, [newRecord]);
           } else {
-            ids = [vals[name]].filter((id) => _exist(related_to, id));
+            if (_exist(related_to, vals[name])) {
+              const existing = models[related_to].read(vals[name]);
+              _connect(relation, record, [existing]);
+            }
           }
-          const record1 = models[model].read(id);
-          const otherRecords = models[related_to].readMany(ids);
-          _connect(relation, record1, otherRecords);
         }
       } else {
         record[name] = vals[name];
@@ -442,35 +441,29 @@ export default function createRelatedModels(
         for (const command of vals[name]) {
           const [type, ...items] = command;
           if (type === 'unlink') {
-            const record1 = models[model].read(id);
-            const otherRecords = models[related_to].readMany(items);
-            _disconnect(relation, record1, otherRecords);
+            _disconnect(relation, record, models[related_to].readMany(items));
           } else if (type === 'clear') {
-            const record = models[model].read(id);
             _clearConnections(relation, record, related_to, false);
-          } else {
-            let ids = [];
-            if (type === 'create') {
-              ids = items.map((_vals) => _create(related_to, _vals).id);
-            } else if (type === 'link') {
-              ids = items.filter((id) => _exist(related_to, id));
-            }
-            const record1 = models[model].read(id);
-            const otherRecords = models[related_to].readMany(ids);
-            _connect(relation, record1, otherRecords);
+          } else if (type === 'create') {
+            const newRecords = items.map((_vals) => _create(related_to, _vals));
+            _connect(relation, record, newRecords);
+          } else if (type === 'link') {
+            const existingIds = items.filter((id) => _exist(related_to, id));
+            const existingRecords = models[related_to].readMany(existingIds);
+            _connect(relation, record, existingRecords);
           }
         }
       } else if (field.type === 'many2one') {
         if (vals[name]) {
-          let ids = [];
           if (typeof vals[name] === 'object') {
-            ids = [_create(related_to, vals[name]).id];
+            const newRecord = _create(related_to, vals[name]);
+            _connect(relation, record, [newRecord]);
           } else {
-            ids = [vals[name]].filter((id) => _exist(related_to, id));
+            if (_exist(related_to, vals[name])) {
+              const existing = models[related_to].read(vals[name]);
+              _connect(relation, record, [existing]);
+            }
           }
-          const record1 = models[model].read(id);
-          const otherRecords = models[related_to].readMany(ids);
-          _connect(relation, record1, otherRecords);
         } else {
           _clearConnections(relation, record, related_to, false);
         }
@@ -584,39 +577,45 @@ export default function createRelatedModels(
 }
 
 export class BaseModel {
-  constructor(name, env, id) {
-    this.name = name;
-    this.env = env;
+  constructor(model, env, id) {
+    this.__meta__ = {
+      model,
+      env,
+      nodeKey: `${model}${__}${id}`,
+    };
     this.id = id;
   }
+  get env() {
+    return this.__meta__.env;
+  }
   create(vals) {
-    return this.env[this.name].create(vals);
+    return this.env[this.__meta__.model].create(vals);
   }
   createMany(valsList) {
-    return this.env[this.name].createMany(valsList);
+    return this.env[this.__meta__.model].createMany(valsList);
   }
   update(id, vals) {
-    return this.env[this.name].update(id, vals);
+    return this.env[this.__meta__.model].update(id, vals);
   }
   delete(id) {
-    return this.env[this.name].delete(id);
+    return this.env[this.__meta__.model].delete(id);
   }
   deleteMany(ids) {
-    return this.env[this.name].deleteMany(ids);
+    return this.env[this.__meta__.model].deleteMany(ids);
   }
   read(id) {
-    return this.env[this.name].read(id);
+    return this.env[this.__meta__.model].read(id);
   }
   readAll() {
-    return this.env[this.name].readAll();
+    return this.env[this.__meta__.model].readAll();
   }
   readMany(ids) {
-    return this.env[this.name].readMany(ids);
+    return this.env[this.__meta__.model].readMany(ids);
   }
   find(predicate) {
-    return this.env[this.name].find(predicate);
+    return this.env[this.__meta__.model].find(predicate);
   }
   findAll(predicate) {
-    return this.env[this.name].findAll(predicate);
+    return this.env[this.__meta__.model].findAll(predicate);
   }
 }
