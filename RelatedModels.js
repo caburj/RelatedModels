@@ -224,21 +224,6 @@ export default function createRelatedModels(
       info: { relation_ref: ref, id: key, node },
     });
   }
-  function _clearNode(relation, record) {
-    const key = record.__meta__.nodeKey;
-    const ref = relation.relation_ref;
-    const node = _getNode(relation, record);
-    if (node.type === 'single') {
-      node.value = undefined;
-    } else if (node.type === 'multi') {
-      node.value.clear();
-    }
-    data.changes.add(makeChangeId(ref, key), {
-      type: 'modified',
-      which: 'node',
-      info: { relation_ref: ref, id: key, node },
-    });
-  }
   function _deleteNode(relation, record) {
     const key = record.__meta__.nodeKey;
     const ref = relation.relation_ref;
@@ -355,21 +340,13 @@ export default function createRelatedModels(
       _deleteLink(relation, linkId2remove);
     }
   }
-  function _clearConnections(relation, record1, model2, deleteNode) {
+  function _getLinkedRecords(relation, record1, model2) {
     const m1Node = _getNode(relation, record1);
     const linkIds = m1Node.type === 'single' ? [m1Node.value] : m1Node.value;
-    for (const linkId of linkIds) {
+    return [...linkIds].map((linkId) => {
       const link = _getLink(relation, linkId);
-      const record2 = models[model2].read(link[model2]);
-      // link is not deleted in record1 here because it is later deleted/cleared.
-      _deleteLinkOnNode(relation, record2, link.id);
-      _deleteLink(relation, link.id);
-    }
-    if (deleteNode) {
-      _deleteNode(relation, record1);
-    } else {
-      _clearNode(relation, record1);
-    }
+      return models[model2].read(link[model2]);
+    });
   }
   function _exist(model, id) {
     return id in data.records[model];
@@ -443,7 +420,8 @@ export default function createRelatedModels(
           if (type === 'unlink') {
             _disconnect(relation, record, models[related_to].readMany(items));
           } else if (type === 'clear') {
-            _clearConnections(relation, record, related_to, false);
+            const linkedRecs = _getLinkedRecords(relation, record, related_to);
+            _disconnect(relation, record, linkedRecs);
           } else if (type === 'create') {
             const newRecords = items.map((_vals) => _create(related_to, _vals));
             _connect(relation, record, newRecords);
@@ -465,7 +443,8 @@ export default function createRelatedModels(
             }
           }
         } else {
-          _clearConnections(relation, record, related_to, false);
+          const linkedRecs = _getLinkedRecords(relation, record, related_to);
+          _disconnect(relation, record, linkedRecs);
         }
       } else {
         record[name] = vals[name];
@@ -485,7 +464,9 @@ export default function createRelatedModels(
       const related_to = field.related_to;
       const relation = field.relation;
       if (RELATION_TYPES.has(field.type)) {
-        _clearConnections(relation, record, related_to, true);
+        const linkedRecs = _getLinkedRecords(relation, record, related_to);
+        _disconnect(relation, record, linkedRecs);
+        _deleteNode(relation, record);
       }
     }
     _deleteRecord(model, id);
