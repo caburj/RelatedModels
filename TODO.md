@@ -17,8 +17,13 @@
 
 ## DOING
 
+- [ ] Nodes should be in a record and should be named as `connections` or `links`.
+
 ## DONE
 
 - [x] Implement replace, or support multiple commands in many2many field update
   - supported multiple commands, so replace is equivalent to clear + add.
 - [x] Support creation of records in a related field.
+- [x] Something is wrong with the connect method. It seems to be doing excessive
+      disconnect when relation is many2one.
+  - nothing is wrong.

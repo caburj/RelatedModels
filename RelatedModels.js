@@ -311,34 +311,30 @@ export default function createRelatedModels(
   function _deleteRecord(model, id) {
     delete data.records[model][id];
   }
-  function _connect(relation, record1, otherRecords) {
-    for (const record2 of otherRecords) {
-      if (relation.type === 'many2one') {
-        const singleRecord = {
-          [record1.__meta__.model]: record1,
-          [record2.__meta__.model]: record2,
-        }[relation.single];
-        const singleNode = _getNode(relation, singleRecord);
-        if (singleNode.value) {
-          const connectedLink = _getLink(relation, singleNode.value);
-          const connectedMultiRecord = models[relation.multi].read(
-            connectedLink[relation.multi]
-          );
-          _disconnect(relation, singleRecord, [connectedMultiRecord]);
-        }
+  function _connect(relation, record1, record2) {
+    if (relation.type === 'many2one') {
+      const singleRecord = {
+        [record1.__meta__.model]: record1,
+        [record2.__meta__.model]: record2,
+      }[relation.single];
+      const singleNode = _getNode(relation, singleRecord);
+      if (singleNode.value) {
+        const connectedLink = _getLink(relation, singleNode.value);
+        const connectedMultiRecord = models[relation.multi].read(
+          connectedLink[relation.multi]
+        );
+        _disconnect(relation, singleRecord, connectedMultiRecord);
       }
-      const link = _createLink(relation, record1, record2);
-      _addLinkOnNode(relation, record1, link.id);
-      _addLinkOnNode(relation, record2, link.id);
     }
+    const link = _createLink(relation, record1, record2);
+    _addLinkOnNode(relation, record1, link.id);
+    _addLinkOnNode(relation, record2, link.id);
   }
-  function _disconnect(relation, record1, otherRecords) {
-    for (const record2 of otherRecords) {
-      const linkId2remove = _getLinkId(record1, record2);
-      _deleteLinkOnNode(relation, record1, linkId2remove);
-      _deleteLinkOnNode(relation, record2, linkId2remove);
-      _deleteLink(relation, linkId2remove);
-    }
+  function _disconnect(relation, record1, record2) {
+    const linkId2remove = _getLinkId(record1, record2);
+    _deleteLinkOnNode(relation, record1, linkId2remove);
+    _deleteLinkOnNode(relation, record2, linkId2remove);
+    _deleteLink(relation, linkId2remove);
   }
   function _getLinkedRecords(relation, record1, model2) {
     const m1Node = _getNode(relation, record1);
@@ -377,21 +373,24 @@ export default function createRelatedModels(
               const newRecords = args.map((_vals) =>
                 _create(related_to, _vals)
               );
-              _connect(relation, record, newRecords);
+              for (const record2 of newRecords) {
+                _connect(relation, record, record2);
+              }
             } else if (command === 'link') {
               const existingIds = args.filter((id) => _exist(related_to, id));
-              const existingRecords = models[related_to].readMany(existingIds);
-              _connect(relation, record, existingRecords);
+              for (const record2 of models[related_to].readMany(existingIds)) {
+                _connect(relation, record, record2);
+              }
             }
           }
         } else if (field.type === 'many2one') {
           if (typeof vals[name] === 'object') {
             const newRecord = _create(related_to, vals[name]);
-            _connect(relation, record, [newRecord]);
+            _connect(relation, record, newRecord);
           } else {
             if (_exist(related_to, vals[name])) {
               const existing = models[related_to].read(vals[name]);
-              _connect(relation, record, [existing]);
+              _connect(relation, record, existing);
             }
           }
         }
@@ -418,33 +417,43 @@ export default function createRelatedModels(
         for (const command of vals[name]) {
           const [type, ...items] = command;
           if (type === 'unlink') {
-            _disconnect(relation, record, models[related_to].readMany(items));
+            for (const record2 of models[related_to].readMany(items)) {
+              _disconnect(relation, record, record2);
+            }
           } else if (type === 'clear') {
             const linkedRecs = _getLinkedRecords(relation, record, related_to);
-            _disconnect(relation, record, linkedRecs);
+            for (const record2 of linkedRecs) {
+              _disconnect(relation, record, record2);
+            }
           } else if (type === 'create') {
             const newRecords = items.map((_vals) => _create(related_to, _vals));
-            _connect(relation, record, newRecords);
+            for (const record2 of newRecords) {
+              _connect(relation, record, record2);
+            }
           } else if (type === 'link') {
             const existingIds = items.filter((id) => _exist(related_to, id));
             const existingRecords = models[related_to].readMany(existingIds);
-            _connect(relation, record, existingRecords);
+            for (const record2 of existingRecords) {
+              _connect(relation, record, record2);
+            }
           }
         }
       } else if (field.type === 'many2one') {
         if (vals[name]) {
           if (typeof vals[name] === 'object') {
             const newRecord = _create(related_to, vals[name]);
-            _connect(relation, record, [newRecord]);
+            _connect(relation, record, newRecord);
           } else {
             if (_exist(related_to, vals[name])) {
               const existing = models[related_to].read(vals[name]);
-              _connect(relation, record, [existing]);
+              _connect(relation, record, existing);
             }
           }
         } else {
           const linkedRecs = _getLinkedRecords(relation, record, related_to);
-          _disconnect(relation, record, linkedRecs);
+          for (const record2 of linkedRecs) {
+            _disconnect(relation, record, record2);
+          }
         }
       } else {
         record[name] = vals[name];
@@ -465,7 +474,9 @@ export default function createRelatedModels(
       const relation = field.relation;
       if (RELATION_TYPES.has(field.type)) {
         const linkedRecs = _getLinkedRecords(relation, record, related_to);
-        _disconnect(relation, record, linkedRecs);
+        for (const record2 of linkedRecs) {
+          _disconnect(relation, record, record2);
+        }
         _deleteNode(relation, record);
       }
     }
