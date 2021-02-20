@@ -218,13 +218,8 @@ export default function createRelatedModels(modelDefs, classes) {
         });
       }
     }
-    return record;
-  }
-  function _setRecord(model, record) {
     data.records[model][record.id] = record;
-  }
-  function _deleteRecord(model, id) {
-    delete data.records[model][id];
+    return record;
   }
   function _connect(relation, record1, record2) {
     if (relation.type === 'many2one') {
@@ -268,7 +263,6 @@ export default function createRelatedModels(modelDefs, classes) {
     }
     const id = vals['id'];
     const record = _initRecord(model, new classes[model](model, models, id));
-    _setRecord(model, record);
     const fields = _getFields(model);
     for (const name in fields) {
       const field = fields[name];
@@ -385,7 +379,7 @@ export default function createRelatedModels(modelDefs, classes) {
         _deleteNode(relation, record);
       }
     }
-    _deleteRecord(model, id);
+    delete data.records[model][id];
   }
 
   class CRUD {
