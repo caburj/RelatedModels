@@ -3,7 +3,7 @@ import { v4 as uuid } from 'uuid';
 
 const RELATION_TYPES = new Set(['many2many', 'many2one', 'one2many']);
 const X2MANY_TYPES = new Set(['many2many', 'one2many']);
-const __ = '/';
+const DELIMITER = '/';
 
 function getInverseRelationType(type) {
   return {
@@ -172,8 +172,8 @@ export default function createRelatedModels(modelDefs, classes) {
     const model2 = record2.__meta__.model;
     const id2 = record2.id;
     return model1.localeCompare(model2) < 0
-      ? `${model1}${__}${id1}${__}${model2}${__}${id2}`
-      : `${model2}${__}${id2}${__}${model1}${__}${id1}`;
+      ? `${model1}${DELIMITER}${id1}${DELIMITER}${model2}${DELIMITER}${id2}`
+      : `${model2}${DELIMITER}${id2}${DELIMITER}${model1}${DELIMITER}${id1}`;
   }
   function _createLink(relation, record1, record2) {
     const ref = relation.relation_ref;
@@ -449,7 +449,7 @@ export class BaseModel {
     this.__meta__ = {
       model,
       env,
-      nodeKey: `${model}${__}${id}`,
+      nodeKey: `${model}${DELIMITER}${id}`,
     };
     this.id = id;
   }
