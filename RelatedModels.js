@@ -13,34 +13,6 @@ function getInverseRelationType(type) {
   }[type];
 }
 
-const makeChangeId = (first, second) => `${first}${__}${second}`;
-
-class Changes {
-  constructor() {
-    this._changes = {};
-  }
-  restart() {
-    this._changes = {};
-  }
-  add(id, val) {
-    const current = this._changes[id];
-    if (!current) {
-      this._changes[id] = val;
-    } else {
-      if (current.type === 'created' && val.type === 'deleted') {
-        delete this._changes[id];
-      } else if (current.type === 'modified' && val.type === 'deleted') {
-        this._changes[id] = val;
-      } else if (current.type === 'deleted' && val.type === 'created') {
-        delete this._changes[id];
-      }
-    }
-  }
-  get() {
-    return Object.values(this._changes);
-  }
-}
-
 function createRelation(field1, field2) {
   if (field1.relation_ref !== field2.relation_ref) {
     throw new Error('Provided fields should have the same relation_ref');
@@ -127,12 +99,7 @@ function processModelDefs(modelDefs) {
   return [modelDefs, [...refs], relations];
 }
 
-export default function createRelatedModels(
-  modelDefs,
-  classes,
-  onChange = () => {},
-  initialData = undefined
-) {
+export default function createRelatedModels(modelDefs, classes) {
   const [processedModelDefs, refs, relations] = processModelDefs(modelDefs);
   const data = {
     modelDefs: processedModelDefs,
@@ -140,7 +107,6 @@ export default function createRelatedModels(
     nodes: {},
     links: {},
     relations,
-    changes: new Changes(),
   };
   for (const model in data.modelDefs) {
     data.records[model] = {};
@@ -149,22 +115,7 @@ export default function createRelatedModels(
     data.nodes[ref] = {};
     data.links[ref] = {};
   }
-  if (initialData) {
-    loadData(initialData);
-  }
 
-  // TODO: This might be outdated already.
-  function loadData({ records, nodes, links }) {
-    for (const item of nodes) {
-      data.nodes[item.relation_ref][item.id] = item.node;
-    }
-    for (const item of links) {
-      data.links[item.relation_ref][item.id] = item.link;
-    }
-    for (const item of records) {
-      _setRecord(item.model, _initRecord(item.model, item.record));
-    }
-  }
   function _getFields(model) {
     return data.modelDefs[model];
   }
@@ -182,11 +133,6 @@ export default function createRelatedModels(
     } else {
       nodes[key] = { value: new Set([]), type: 'multi' };
     }
-    data.changes.add(makeChangeId(ref, key), {
-      type: 'created',
-      which: 'node',
-      info: { relation_ref: ref, id: key, node: nodes[key] },
-    });
   }
   function _getNode(relation, record) {
     const key = record.__meta__.nodeKey;
@@ -203,11 +149,6 @@ export default function createRelatedModels(
     } else if (node.type === 'multi') {
       node.value.add(linkId);
     }
-    data.changes.add(makeChangeId(ref, key), {
-      type: 'modified',
-      which: 'node',
-      info: { relation_ref: ref, id: key, node },
-    });
   }
   function _deleteLinkOnNode(relation, record, linkId) {
     const key = record.__meta__.nodeKey;
@@ -218,23 +159,12 @@ export default function createRelatedModels(
     } else if (node.type === 'multi') {
       node.value.delete(linkId);
     }
-    data.changes.add(makeChangeId(ref, key), {
-      type: 'modified',
-      which: 'node',
-      info: { relation_ref: ref, id: key, node },
-    });
   }
   function _deleteNode(relation, record) {
     const key = record.__meta__.nodeKey;
     const ref = relation.relation_ref;
     const nodes = data.nodes[ref];
-    const deleted = nodes[key];
     delete nodes[key];
-    data.changes.add(makeChangeId(ref, key), {
-      type: 'deleted',
-      which: 'node',
-      info: { relation_ref: ref, id: key, node: deleted },
-    });
   }
   function _getLinkId(record1, record2) {
     const model1 = record1.__meta__.model;
@@ -254,11 +184,6 @@ export default function createRelatedModels(
     };
     const links = data.links[ref];
     links[link.id] = link;
-    data.changes.add(makeChangeId(ref, link.id), {
-      type: 'created',
-      which: 'link',
-      info: { relation_ref: ref, id: link.id, link },
-    });
     return link;
   }
   function _getLink(relation, id) {
@@ -269,13 +194,7 @@ export default function createRelatedModels(
   function _deleteLink(relation, id) {
     const ref = relation.relation_ref;
     const links = data.links[ref];
-    const deleted = links[id];
     delete links[id];
-    data.changes.add(makeChangeId(ref, id), {
-      type: 'deleted',
-      which: 'link',
-      info: { relation_ref: ref, id, link: deleted },
-    });
   }
   function _initRecord(model, record) {
     const fields = _getFields(model);
@@ -398,11 +317,6 @@ export default function createRelatedModels(
         record[name] = vals[name];
       }
     }
-    data.changes.add(makeChangeId(model, id), {
-      type: 'created',
-      which: 'record',
-      info: { model, id, record },
-    });
     return record;
   }
   function _update(model, id, vals) {
@@ -459,11 +373,6 @@ export default function createRelatedModels(
         record[name] = vals[name];
       }
     }
-    data.changes.add(makeChangeId(model, id), {
-      type: 'modified',
-      which: 'record',
-      info: { model, id, record },
-    });
   }
   function _delete(model, id) {
     const record = models[model].read(id);
@@ -481,11 +390,6 @@ export default function createRelatedModels(
       }
     }
     _deleteRecord(model, id);
-    data.changes.add(makeChangeId(model, id), {
-      type: 'deleted',
-      which: 'record',
-      info: { model, id, record },
-    });
   }
 
   class CRUD {
@@ -493,55 +397,27 @@ export default function createRelatedModels(
       this.model = model;
     }
     create(vals) {
-      try {
-        const result = _create(this.model, vals);
-        onChange(data.changes.get());
-        return result;
-      } finally {
-        data.changes.restart();
-      }
+      return _create(this.model, vals);
     }
     createMany(valsList) {
-      try {
-        const result = [];
-        for (const vals of valsList) {
-          result.push(_create(this.model, vals));
-        }
-        onChange(data.changes.get());
-        return result;
-      } finally {
-        data.changes.restart();
+      const result = [];
+      for (const vals of valsList) {
+        result.push(_create(this.model, vals));
       }
+      return result;
     }
     update(id, vals) {
-      try {
-        const result = _update(this.model, id, vals);
-        onChange(data.changes.get());
-        return result;
-      } finally {
-        data.changes.restart();
-      }
+      return _update(this.model, id, vals);
     }
     delete(id) {
-      try {
-        const result = _delete(this.model, id);
-        onChange(data.changes.get());
-        return result;
-      } finally {
-        data.changes.restart();
-      }
+      return _delete(this.model, id);
     }
     deleteMany(ids) {
-      try {
-        const result = [];
-        for (const id of ids) {
-          result.push(_delete(this.model, id));
-        }
-        onChange(data.changes.get());
-        return result;
-      } finally {
-        data.changes.restart();
+      const result = [];
+      for (const id of ids) {
+        result.push(_delete(this.model, id));
       }
+      return result;
     }
     read(id) {
       if (!(this.model in data.records)) return;
