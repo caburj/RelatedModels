@@ -141,8 +141,6 @@ export default function createRelatedModels(modelDefs, classes) {
     return nodes[key];
   }
   function _addLinkOnNode(relation, record, linkId) {
-    const key = record.__meta__.nodeKey;
-    const ref = relation.relation_ref;
     const node = _getNode(relation, record);
     if (node.type === 'single') {
       node.value = linkId;
@@ -151,8 +149,6 @@ export default function createRelatedModels(modelDefs, classes) {
     }
   }
   function _deleteLinkOnNode(relation, record, linkId) {
-    const key = record.__meta__.nodeKey;
-    const ref = relation.relation_ref;
     const node = _getNode(relation, record);
     if (node.type === 'single' && node.value === linkId) {
       node.value = undefined;
