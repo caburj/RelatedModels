@@ -84,6 +84,19 @@ const modelDefs = {
       relation_ref: 'product_tag_rel',
     },
   },
+  todo: {
+    id: { type: 'string' },
+    parent_id: {
+      type: 'many2one',
+      related_to: 'todo',
+      relation_ref: 'parent_children_todo_rel',
+    },
+    children_ids: {
+      type: 'one2many',
+      related_to: 'todo',
+      relation_ref: 'parent_children_todo_rel',
+    },
+  },
 };
 
 class Order extends BaseModel {
@@ -98,6 +111,7 @@ class Orderline extends BaseModel {}
 class Product extends BaseModel {}
 class Tax extends BaseModel {}
 class Tag extends BaseModel {}
+class Todo extends BaseModel {}
 
 const classes = {
   order: Order,
@@ -105,6 +119,7 @@ const classes = {
   product: Product,
   tax: Tax,
   tag: Tag,
+  todo: Todo,
 };
 
 const models = createRelatedModels(modelDefs, classes);
@@ -324,7 +339,7 @@ describe('one2many/many2one', () => {
         orderline_ids: [['link', ol.id]],
       });
       expect(order1.orderline_ids.length).toBe(3);
-      models.orderline.delete([orderline1.id]);
+      models.orderline.delete(orderline1.id);
       expect(order1.orderline_ids.length).toBe(2);
       models.order.update(order1.id, {
         orderline_ids: [
@@ -466,7 +481,7 @@ describe('one2many/many2one', () => {
       expect(orderline1.order_id).toBe(undefined);
     });
     it('removes reference to ordeline after order is deleted', () => {
-      models.order.delete([order1.id]);
+      models.order.delete(order1.id);
       expect(orderline1.order_id).toBe(undefined);
     });
   });
@@ -480,7 +495,7 @@ describe('many2one without inverse to the related type', () => {
       quantity: 10,
     });
     expect(orderline1.product_id).toBe(productA);
-    models.product.delete([productA.id]);
+    models.product.delete(productA.id);
     expect(orderline1.product_id).toBe(undefined);
   });
 });
@@ -837,5 +852,42 @@ describe('class methods', () => {
     expect(order1.getTotal()).toBe(3 * 10 + 2 * 5);
     models.product.update(product1.id, { price: 100 });
     expect(order1.getTotal()).toBe(3 * 100 + 2 * 5);
+  });
+});
+
+describe('model related to itself (many2one)', () => {
+  it('creates', () => {
+    const todo = models.todo.create({
+      children_ids: [['create', {}, {}]],
+    });
+    expect(todo.children_ids.length).toBe(2);
+    const [child1, child2] = todo.children_ids;
+    expect(child1.parent_id).toBe(todo);
+    expect(child2.parent_id).toBe(todo);
+  });
+  it('updates', () => {
+    const todo = models.todo.create({
+      parent_id: {},
+      children_ids: [['create', {}, {}]],
+    });
+    const parent = todo.parent_id;
+    const [child1, child2] = todo.children_ids;
+    models.todo.update(parent.id, { children_ids: [['link', child2.id]] });
+    expect(todo.children_ids).toEqual([child1]);
+    expect(parent.children_ids).toEqual([todo, child2]);
+  });
+  it('deletes', () => {
+    const todo = models.todo.create({
+      parent_id: {},
+      children_ids: [['create', {}, {}]],
+    });
+    const parent = todo.parent_id;
+    const [child1, child2] = todo.children_ids;
+    models.todo.delete(parent.id);
+    expect(todo.parent_id).toBe(undefined);
+    models.todo.delete(child1.id);
+    expect(todo.children_ids).toEqual([child2]);
+    models.todo.delete(child2.id);
+    expect(todo.children_ids).toEqual([]);
   });
 });
