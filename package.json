@@ -4,7 +4,8 @@
   "description": "",
   "main": "RelatedModels.js",
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "test:coverage": "jest --collect-coverage"
   },
   "repository": {
     "type": "git",

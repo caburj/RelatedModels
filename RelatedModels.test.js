@@ -5,6 +5,20 @@ function sum(array, selector = (x) => x) {
 }
 
 const modelDefs = {
+  tag: {
+    id: {
+      type: 'string',
+    },
+    name: {
+      type: 'string',
+      required: true,
+    },
+    product_ids: {
+      type: 'many2many',
+      related_to: 'product',
+      relation_ref: 'product_tag_rel',
+    },
+  },
   order: {
     id: {
       type: 'string',
@@ -70,29 +84,15 @@ const modelDefs = {
       required: true,
     },
   },
-  tag: {
-    id: {
-      type: 'string',
-    },
-    name: {
-      type: 'string',
-      required: true,
-    },
-    product_ids: {
-      type: 'many2many',
-      related_to: 'product',
-      relation_ref: 'product_tag_rel',
-    },
-  },
   todo: {
     id: { type: 'string' },
-    parent_id: {
-      type: 'many2one',
+    children_ids: {
+      type: 'one2many',
       related_to: 'todo',
       relation_ref: 'parent_children_todo_rel',
     },
-    children_ids: {
-      type: 'one2many',
+    parent_id: {
+      type: 'many2one',
       related_to: 'todo',
       relation_ref: 'parent_children_todo_rel',
     },
@@ -889,5 +889,13 @@ describe('model related to itself (many2one)', () => {
     expect(todo.children_ids).toEqual([child2]);
     models.todo.delete(child2.id);
     expect(todo.children_ids).toEqual([]);
+  });
+  it('reads', () => {
+    const todo = models.todo.create({
+      parent_id: {},
+      children_ids: [['create', {}, {}]],
+    });
+    const theSameTodo = models.todo.find(t => t.id === todo.id);
+    expect(theSameTodo).toBe(todo);
   });
 });
