@@ -15,6 +15,14 @@
 - [ ] reset contents of related models
   - [ ] should also update the tests to probably reset models for each test
 
+**From meeting with Géry**
+
+- [ ] Async-first methods
+- [ ] Dependency injection of complicated logic such as handling batch operations
+- [ ] Write a toy app to access the API of the library. Make sure to just solve
+  the problems that exists and avoid those that you think are going to be.
+- [ ] Consider the developers who will use the API
+
 ## DOING
 
 - [ ] Nodes should be in a record and should be named as `connections` or `links`.
