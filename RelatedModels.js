@@ -78,6 +78,7 @@ function processModelDefs(modelDefs) {
         dummyField.type === 'many2one'
           ? `dummy_${model}_id`
           : `dummy_${model}_ids`;
+      dummyField.name = dummyFieldName;
       relModelFields[dummyFieldName] = dummyField;
     }
   }
