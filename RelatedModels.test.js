@@ -1,4 +1,4 @@
-import createRelatedModels, { BaseModel } from './RelatedModels';
+import { createRelatedModels, BaseModel } from './RelatedModels';
 
 function sum(array, selector = (x) => x) {
   return array.reduce((acc, item) => acc + selector(item), 0);
