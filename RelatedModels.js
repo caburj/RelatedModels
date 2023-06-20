@@ -122,19 +122,19 @@ function processModelDefs(modelDefs) {
   return [modelDefs, [...refs], relations];
 }
 
-export function createRelatedModels(modelDefs, classes) {
+export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
   const [processedModelDefs, refs, relations] = processModelDefs(modelDefs);
   const data = {
     modelDefs: processedModelDefs,
-    records: {},
-    links: {},
+    records: reactive({}),
+    links: reactive({}),
     relations,
   };
   for (const model in data.modelDefs) {
-    data.records[model] = {};
+    data.records[model] = reactive({});
   }
   for (const ref of refs) {
-    data.links[ref] = {};
+    data.links[ref] = reactive({});
   }
 
   function _getFields(model) {
@@ -145,12 +145,12 @@ export function createRelatedModels(modelDefs, classes) {
     if (relation.type === "many2one") {
       const nodeType = relation.getNodeType(field);
       if (nodeType === "single") {
-        return { value: undefined, type: "single" };
+        return reactive({ value: undefined, type: "single" });
       } else if (nodeType === "multi") {
-        return { value: new Set([]), type: "multi" };
+        return reactive({ value: new Set([]), type: "multi" });
       }
     } else {
-      return { value: new Set([]), type: "multi" };
+      return reactive({ value: new Set([]), type: "multi" });
     }
   }
   function _addLinkOnNode(node, linkId) {
@@ -179,11 +179,11 @@ export function createRelatedModels(modelDefs, classes) {
     const relation = field.relation;
     const inverseField = relation.getInverse(field);
     const linkId = _calcLinkId(field, record1, record2);
-    const link = {
+    const link = reactive({
       id: linkId,
       [field.name]: record2.id,
       [inverseField.name]: record1.id,
-    };
+    });
     const links = data.links[field.relation_ref];
     links[linkId] = link;
     return link;
@@ -206,11 +206,16 @@ export function createRelatedModels(modelDefs, classes) {
       if (X2MANY_TYPES.has(field.type)) {
         Object.defineProperty(record, name, {
           get: () => {
+            // TODO: This getter should cache the result.
+            //   It's value should only change when the record is updated.
             const node = record.__meta__.connections[field.name];
             return [...(node.value || [])].map((linkId) => {
               const link = _getLink(field.relation, linkId);
               return models[field.related_to].read(link[field.name]);
             });
+          },
+          set: (commands) => {
+            _update(model, record.id, { [name]: commands });
           },
         });
       } else if (field.type === "many2one") {
@@ -221,11 +226,14 @@ export function createRelatedModels(modelDefs, classes) {
             const link = _getLink(field.relation, node.value);
             return models[field.related_to].read(link[field.name]);
           },
+          set: (value) => {
+            _update(model, record.id, { [name]: value });
+          },
         });
       }
     }
     data.records[model][record.id] = record;
-    return record;
+    return reactive(record);
   }
   function _connect(field, record1, record2) {
     const relation = field.relation;
@@ -277,7 +285,7 @@ export function createRelatedModels(modelDefs, classes) {
       vals["id"] = uuid(model);
     }
     const id = vals["id"];
-    const record = _initRecord(model, new classes[model](model, models, id));
+    const record = _initRecord(model, reactive(new classes[model](model, models, id)));
     const fields = _getFields(model);
     for (const name in fields) {
       const field = fields[name];
@@ -449,7 +457,7 @@ export class BaseModel {
     this.__meta__ = {
       model,
       env,
-      connections: {},
+      connections: reactive({}),
     };
     this.id = id;
   }

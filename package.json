@@ -5,7 +5,8 @@
   "main": "RelatedModels.js",
   "scripts": {
     "test": "jest",
-    "test:coverage": "jest --collect-coverage"
+    "test:coverage": "jest --collect-coverage",
+    "build": "rollup -c rollup.config.js --bundleConfigAsCjs"
   },
   "repository": {
     "type": "git",
@@ -21,12 +22,15 @@
     "@babel/core": "^7.9.0",
     "@babel/preset-env": "^7.9.5",
     "babel-jest": "^25.2.6",
-    "jest": "^25.2.7"
+    "jest": "^25.2.7",
+    "rollup": "^3.25.1"
   },
   "jest": {
     "testMatch": [
       "**/*.test.js"
     ]
   },
-  "dependencies": {}
+  "dependencies": {
+    "@rollup/plugin-node-resolve": "^15.1.0"
+  }
 }
