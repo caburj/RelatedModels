@@ -93,13 +93,11 @@ function processModelDefs(modelDefs) {
     }
   }
   const relationRefFields = {};
-  const refs = new Set([]);
   for (const model in modelDefs) {
     const fields = modelDefs[model];
     for (const fieldName in fields) {
       const field = fields[fieldName];
       if (!RELATION_TYPES.has(field.type)) continue;
-      refs.add(field.relation_ref);
       if (field.relation_ref in relationRefFields) {
         relationRefFields[field.relation_ref].push(field);
       } else {
@@ -119,163 +117,91 @@ function processModelDefs(modelDefs) {
       field.relation = relations[field.relation_ref];
     }
   }
-  return [modelDefs, [...refs], relations];
+  return [modelDefs, relations];
 }
 
 export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
-  const [processedModelDefs, refs, relations] = processModelDefs(modelDefs);
+  const [processedModelDefs, relations] = processModelDefs(modelDefs);
   const data = {
     modelDefs: processedModelDefs,
     records: reactive({}),
-    links: reactive({}),
     relations,
   };
   for (const model in data.modelDefs) {
     data.records[model] = reactive({});
   }
-  for (const ref of refs) {
-    data.links[ref] = reactive({});
-  }
-
   function _getFields(model) {
     return data.modelDefs[model];
-  }
-  function _createNode(field) {
-    const relation = data.relations[field.relation_ref];
-    if (relation.type === "many2one") {
-      const nodeType = relation.getNodeType(field);
-      if (nodeType === "single") {
-        return reactive({ value: undefined, type: "single" });
-      } else if (nodeType === "multi") {
-        return reactive({ value: new Set([]), type: "multi" });
-      }
-    } else {
-      return reactive({ value: new Set([]), type: "multi" });
-    }
-  }
-  function _addLinkOnNode(node, linkId) {
-    if (node.type === "single") {
-      node.value = linkId;
-    } else if (node.type === "multi") {
-      node.value.add(linkId);
-    }
-  }
-  function _deleteLinkOnNode(node, linkId) {
-    if (node.type === "single" && node.value === linkId) {
-      node.value = undefined;
-    } else if (node.type === "multi") {
-      node.value.delete(linkId);
-    }
-  }
-  function _calcLinkId(field, record1, record2) {
-    const relation = field.relation;
-    if (relation.first === field) {
-      return `${relation.relation_ref}${DELIMITER}${record2.id}${DELIMITER}${record1.id}`;
-    } else {
-      return `${relation.relation_ref}${DELIMITER}${record1.id}${DELIMITER}${record2.id}`;
-    }
-  }
-  function _createLink(field, record1, record2) {
-    const relation = field.relation;
-    const inverseField = relation.getInverse(field);
-    const linkId = _calcLinkId(field, record1, record2);
-    const link = reactive({
-      id: linkId,
-      [field.name]: record2.id,
-      [inverseField.name]: record1.id,
-    });
-    const links = data.links[field.relation_ref];
-    links[linkId] = link;
-    return link;
-  }
-  function _getLink(relation, id) {
-    const ref = relation.relation_ref;
-    const links = data.links[ref];
-    return links[id];
-  }
-  function _deleteLink(relation, id) {
-    const ref = relation.relation_ref;
-    const links = data.links[ref];
-    delete links[id];
   }
   function _initRecord(model, record) {
     const fields = _getFields(model);
     for (const name in fields) {
       const field = fields[name];
-      if (field.dummy) continue;
       if (X2MANY_TYPES.has(field.type)) {
-        Object.defineProperty(record, name, {
-          get: () => {
-            // TODO: This getter should cache the result.
-            //   It's value should only change when the record is updated.
-            const node = record.__meta__.connections[field.name];
-            return [...(node.value || [])].map((linkId) => {
-              const link = _getLink(field.relation, linkId);
-              return models[field.related_to].read(link[field.name]);
-            });
-          },
-          set: (commands) => {
-            _update(model, record.id, { [name]: commands });
-          },
-        });
+        record[name] = new Set([]);
       } else if (field.type === "many2one") {
-        Object.defineProperty(record, name, {
-          get: () => {
-            const node = record.__meta__.connections[field.name];
-            if (!node.value) return undefined;
-            const link = _getLink(field.relation, node.value);
-            return models[field.related_to].read(link[field.name]);
-          },
-          set: (value) => {
-            _update(model, record.id, { [name]: value });
-          },
-        });
+        record[name] = undefined;
       }
     }
     data.records[model][record.id] = record;
     return reactive(record);
   }
-  function _connect(field, record1, record2) {
+  function _connect(field, ownerRecord, recordToConnect) {
     const relation = field.relation;
-    if (relation.type === "many2one") {
-      const singleRecord =
-        relation.getNodeType(field) === "single" ? record1 : record2;
-      const singleField = relation.single;
-      const multiRecord = _getLinkedRecords(singleField, singleRecord)[0];
-      if (multiRecord) {
-        _disconnect(singleField, singleRecord, multiRecord);
+    const inverseField = relation.getInverse(field);
+    if (field.type === "many2one") {
+      // Disconnect the old value of the field from the ownerRecord if it exists
+      const prevConnectedRecord = ownerRecord[field.name];
+      if (prevConnectedRecord && inverseField) {
+        prevConnectedRecord[inverseField.name].delete(ownerRecord);
+      }
+      ownerRecord[field.name] = recordToConnect;
+      if (inverseField) {
+        recordToConnect[inverseField.name].add(ownerRecord);
+      }
+    } else if (field.type === "one2many") {
+      // Disconnect the old value of the field from the recordToConnect if it exists
+      if (inverseField) {
+        const prevConnectedRecord = recordToConnect[inverseField.name];
+        if (prevConnectedRecord) {
+          prevConnectedRecord[field.name].delete(recordToConnect);
+        }
+      }
+      ownerRecord[field.name].add(recordToConnect);
+      if (inverseField) {
+        recordToConnect[inverseField.name] = ownerRecord;
+      }
+    } else if (field.type === "many2many") {
+      ownerRecord[field.name].add(recordToConnect);
+      if (inverseField) {
+        recordToConnect[inverseField.name].add(ownerRecord);
       }
     }
-    const inverseField = relation.getInverse(field);
-    const link = _createLink(field, record1, record2);
-    const node1 = record1.__meta__.connections[field.name];
-    const node2 = record2.__meta__.connections[inverseField.name];
-    _addLinkOnNode(node1, link.id);
-    _addLinkOnNode(node2, link.id);
   }
-  function _disconnect(field, record1, record2) {
+  function _disconnect(field, ownerRecord, recordToDisconnect) {
+    if (!recordToDisconnect) return;
     const relation = field.relation;
     const inverseField = relation.getInverse(field);
-    const linkId = _calcLinkId(field, record1, record2);
-    const node1 = record1.__meta__.connections[field.name];
-    const node2 = record2.__meta__.connections[inverseField.name];
-    _deleteLinkOnNode(node1, linkId);
-    _deleteLinkOnNode(node2, linkId);
-    _deleteLink(relation, linkId);
-  }
-  function _getLinkedRecords(field, record1) {
-    const m1Node = record1.__meta__.connections[field.name];
-    let linkIds;
-    if (m1Node.type === "single") {
-      if (!m1Node.value) return [];
-      linkIds = [m1Node.value];
-    } else {
-      linkIds = m1Node.value;
+    if (field.type === "many2one") {
+      const prevConnectedRecord = ownerRecord[field.name];
+      if (prevConnectedRecord === recordToDisconnect) {
+        ownerRecord[field.name] = undefined;
+        recordToDisconnect[inverseField.name].delete(ownerRecord);
+      }
+    } else if (field.type === "one2many") {
+      ownerRecord[field.name].delete(recordToDisconnect);
+      if (inverseField) {
+        const prevConnectedRecord = recordToDisconnect[inverseField.name];
+        if (prevConnectedRecord === ownerRecord) {
+          recordToDisconnect[inverseField.name] = undefined;
+        }
+      }
+    } else if (field.type === "many2many") {
+      ownerRecord[field.name].delete(recordToDisconnect);
+      if (inverseField) {
+        recordToDisconnect[inverseField.name].delete(ownerRecord);
+      }
     }
-    return [...linkIds].map((linkId) => {
-      const link = _getLink(field.relation, linkId);
-      return models[field.related_to].read(link[field.name]);
-    });
   }
   function _exist(model, id) {
     return id in data.records[model];
@@ -285,7 +211,10 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
       vals["id"] = uuid(model);
     }
     const id = vals["id"];
-    const record = _initRecord(model, reactive(new classes[model](model, models, id)));
+    const record = _initRecord(
+      model,
+      reactive(new classes[model](model, models, id))
+    );
     const fields = _getFields(model);
     for (const name in fields) {
       const field = fields[name];
@@ -296,7 +225,6 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
       }
       if (RELATION_TYPES.has(field.type)) {
         const related_to = field.related_to;
-        record.__meta__.connections[field.name] = _createNode(field);
         if (!vals[name]) continue;
         if (X2MANY_TYPES.has(field.type)) {
           for (const [command, ...args] of vals[name]) {
@@ -346,8 +274,8 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
               _disconnect(field, record, record2);
             }
           } else if (type === "clear") {
-            const linkedRecs = _getLinkedRecords(field, record);
-            for (const record2 of linkedRecs) {
+            const linkedRecs = record[name];
+            for (const record2 of [...linkedRecs]) {
               _disconnect(field, record, record2);
             }
           } else if (type === "create") {
@@ -375,10 +303,8 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
             }
           }
         } else {
-          const linkedRecs = _getLinkedRecords(field, record);
-          for (const record2 of linkedRecs) {
-            _disconnect(field, record, record2);
-          }
+          const linkedRec = record[name];
+          _disconnect(field, record, linkedRec);
         }
       } else {
         record[name] = vals[name];
@@ -390,11 +316,12 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
     const fields = _getFields(model);
     for (const name in fields) {
       const field = fields[name];
-      if (RELATION_TYPES.has(field.type)) {
-        const linkedRecs = _getLinkedRecords(field, record);
-        for (const record2 of linkedRecs) {
+      if (X2MANY_TYPES.has(field.type)) {
+        for (const record2 of [...record[name]]) {
           _disconnect(field, record, record2);
         }
+      } else if (field.type === "many2one") {
+        _disconnect(field, record, record[name]);
       }
     }
     delete data.records[model][id];
@@ -454,11 +381,7 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
 
 export class BaseModel {
   constructor(model, env, id) {
-    this.__meta__ = {
-      model,
-      env,
-      connections: reactive({}),
-    };
+    this.__meta__ = { model, env };
     this.id = id;
   }
   get env() {
