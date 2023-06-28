@@ -23,40 +23,11 @@ function getInverseRelationType(type) {
   }[type];
 }
 
-function createRelation(field1, field2) {
+function inverseGetter(field1, field2) {
   if (field1.relation_ref !== field2.relation_ref) {
     throw new Error("Provided fields should have the same relation_ref");
   }
-  const relation_ref = field1.relation_ref;
-  const _inverseFields = new Map();
-  _inverseFields.set(field1, field2);
-  _inverseFields.set(field2, field1);
-  const getInverse = (field) => _inverseFields.get(field);
-  const first = field1.name.localeCompare(field2.name) < 0 ? field1 : field2;
-  if (field1.type === "many2many") {
-    return {
-      type: "many2many",
-      relation_ref,
-      getInverse,
-      first,
-    };
-  } else {
-    const [single, multi] =
-      field1.type === "many2one" ? [field1, field2] : [field2, field1];
-    const _nodeType = new Map();
-    _nodeType.set(single, "single");
-    _nodeType.set(multi, "multi");
-    const getNodeType = (field) => _nodeType.get(field);
-    return {
-      type: "many2one",
-      relation_ref,
-      first,
-      single,
-      multi,
-      getNodeType,
-      getInverse,
-    };
-  }
+  return (field) => field === field1 ? field2 : field1;
 }
 
 function processModelDefs(modelDefs) {
@@ -92,46 +63,42 @@ function processModelDefs(modelDefs) {
       relModelFields[dummyFieldName] = dummyField;
     }
   }
-  const relationRefFields = {};
+  const relatedFields = {};
   for (const model in modelDefs) {
     const fields = modelDefs[model];
     for (const fieldName in fields) {
       const field = fields[fieldName];
       if (!RELATION_TYPES.has(field.type)) continue;
-      if (field.relation_ref in relationRefFields) {
-        relationRefFields[field.relation_ref].push(field);
+      if (field.relation_ref in relatedFields) {
+        relatedFields[field.relation_ref].push(field);
       } else {
-        relationRefFields[field.relation_ref] = [field];
+        relatedFields[field.relation_ref] = [field];
       }
     }
   }
-  const relations = {};
-  for (const ref in relationRefFields) {
-    relations[ref] = createRelation(...relationRefFields[ref]);
+  const inverseGetters = {};
+  for (const ref in relatedFields) {
+    inverseGetters[ref] = inverseGetter(...relatedFields[ref]);
   }
   for (const model in modelDefs) {
     const fields = modelDefs[model];
     for (const fieldName in fields) {
       const field = fields[fieldName];
       if (!RELATION_TYPES.has(field.type)) continue;
-      field.relation = relations[field.relation_ref];
+      field.inverse = inverseGetters[field.relation_ref](field);
     }
   }
-  return [modelDefs, relations];
+  return modelDefs;
 }
 
 export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
-  const [processedModelDefs, relations] = processModelDefs(modelDefs);
-  const data = {
-    modelDefs: processedModelDefs,
-    records: reactive({}),
-    relations,
-  };
-  for (const model in data.modelDefs) {
-    data.records[model] = reactive({});
+  const processedModelDefs = processModelDefs(modelDefs);
+  const records = reactive({});
+  for (const model in processedModelDefs) {
+    records[model] = reactive({});
   }
   function _getFields(model) {
-    return data.modelDefs[model];
+    return processedModelDefs[model];
   }
   function _initRecord(model, record) {
     const fields = _getFields(model);
@@ -143,12 +110,11 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
         record[name] = undefined;
       }
     }
-    data.records[model][record.id] = record;
+    records[model][record.id] = record;
     return reactive(record);
   }
   function _connect(field, ownerRecord, recordToConnect) {
-    const relation = field.relation;
-    const inverseField = relation.getInverse(field);
+    const inverseField = field.inverse;
     if (field.type === "many2one") {
       // Disconnect the old value of the field from the ownerRecord if it exists
       const prevConnectedRecord = ownerRecord[field.name];
@@ -180,8 +146,7 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
   }
   function _disconnect(field, ownerRecord, recordToDisconnect) {
     if (!recordToDisconnect) return;
-    const relation = field.relation;
-    const inverseField = relation.getInverse(field);
+    const inverseField = field.inverse;
     if (field.type === "many2one") {
       const prevConnectedRecord = ownerRecord[field.name];
       if (prevConnectedRecord === recordToDisconnect) {
@@ -204,7 +169,7 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
     }
   }
   function _exist(model, id) {
-    return id in data.records[model];
+    return id in records[model];
   }
   function _create(model, vals) {
     if (!("id" in vals)) {
@@ -324,7 +289,7 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
         _disconnect(field, record, record[name]);
       }
     }
-    delete data.records[model][id];
+    delete records[model][id];
   }
 
   class CRUD {
@@ -355,25 +320,25 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
       return result;
     }
     read(id) {
-      if (!(this.model in data.records)) return;
-      return data.records[this.model][id];
+      if (!(this.model in records)) return;
+      return records[this.model][id];
     }
     readAll() {
-      return Object.values(data.records[this.model]);
+      return Object.values(records[this.model]);
     }
     readMany(ids) {
-      if (!(this.model in data.records)) return [];
-      return ids.map((id) => data.records[this.model][id]);
+      if (!(this.model in records)) return [];
+      return ids.map((id) => records[this.model][id]);
     }
     find(predicate) {
-      return Object.values(data.records[this.model]).find(predicate);
+      return Object.values(records[this.model]).find(predicate);
     }
     findAll(predicate) {
-      return Object.values(data.records[this.model]).filter(predicate);
+      return Object.values(records[this.model]).filter(predicate);
     }
   }
   const models = {};
-  for (const model in modelDefs) {
+  for (const model in processedModelDefs) {
     models[model] = new CRUD(model);
   }
   return models;
