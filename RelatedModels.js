@@ -27,7 +27,7 @@ function inverseGetter(field1, field2) {
   if (field1.relation_ref !== field2.relation_ref) {
     throw new Error("Provided fields should have the same relation_ref");
   }
-  return (field) => field === field1 ? field2 : field1;
+  return (field) => (field === field1 ? field2 : field1);
 }
 
 function processModelDefs(modelDefs) {
@@ -114,58 +114,53 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
     return reactive(record);
   }
   function _connect(field, ownerRecord, recordToConnect) {
-    const inverseField = field.inverse;
+    const inverse = field.inverse;
+
     if (field.type === "many2one") {
-      // Disconnect the old value of the field from the ownerRecord if it exists
       const prevConnectedRecord = ownerRecord[field.name];
-      if (prevConnectedRecord && inverseField) {
-        prevConnectedRecord[inverseField.name].delete(ownerRecord);
+      if (prevConnectedRecord === recordToConnect) {
+        return;
+      }
+      recordToConnect[inverse.name].add(ownerRecord);
+      if (prevConnectedRecord) {
+        prevConnectedRecord[inverse.name].delete(ownerRecord);
       }
       ownerRecord[field.name] = recordToConnect;
-      if (inverseField) {
-        recordToConnect[inverseField.name].add(ownerRecord);
-      }
     } else if (field.type === "one2many") {
-      // Disconnect the old value of the field from the recordToConnect if it exists
-      if (inverseField) {
-        const prevConnectedRecord = recordToConnect[inverseField.name];
-        if (prevConnectedRecord) {
-          prevConnectedRecord[field.name].delete(recordToConnect);
-        }
+      const prevConnectedRecord = recordToConnect[inverse.name];
+      if (prevConnectedRecord === ownerRecord) {
+        return;
+      }
+      recordToConnect[inverse.name] = ownerRecord;
+      if (prevConnectedRecord) {
+        prevConnectedRecord[field.name].delete(recordToConnect);
       }
       ownerRecord[field.name].add(recordToConnect);
-      if (inverseField) {
-        recordToConnect[inverseField.name] = ownerRecord;
-      }
     } else if (field.type === "many2many") {
       ownerRecord[field.name].add(recordToConnect);
-      if (inverseField) {
-        recordToConnect[inverseField.name].add(ownerRecord);
-      }
+      recordToConnect[inverse.name].add(ownerRecord);
     }
   }
   function _disconnect(field, ownerRecord, recordToDisconnect) {
-    if (!recordToDisconnect) return;
-    const inverseField = field.inverse;
+    if (!recordToDisconnect) {
+      throw new Error("recordToDisconnect is undefined");
+    }
+    const inverse = field.inverse;
     if (field.type === "many2one") {
       const prevConnectedRecord = ownerRecord[field.name];
       if (prevConnectedRecord === recordToDisconnect) {
         ownerRecord[field.name] = undefined;
-        recordToDisconnect[inverseField.name].delete(ownerRecord);
+        recordToDisconnect[inverse.name].delete(ownerRecord);
       }
     } else if (field.type === "one2many") {
       ownerRecord[field.name].delete(recordToDisconnect);
-      if (inverseField) {
-        const prevConnectedRecord = recordToDisconnect[inverseField.name];
-        if (prevConnectedRecord === ownerRecord) {
-          recordToDisconnect[inverseField.name] = undefined;
-        }
+      const prevConnectedRecord = recordToDisconnect[inverse.name];
+      if (prevConnectedRecord === ownerRecord) {
+        recordToDisconnect[inverse.name] = undefined;
       }
     } else if (field.type === "many2many") {
       ownerRecord[field.name].delete(recordToDisconnect);
-      if (inverseField) {
-        recordToDisconnect[inverseField.name].delete(ownerRecord);
-      }
+      recordToDisconnect[inverse.name].delete(ownerRecord);
     }
   }
   function _exist(model, id) {
@@ -285,7 +280,7 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
         for (const record2 of [...record[name]]) {
           _disconnect(field, record, record2);
         }
-      } else if (field.type === "many2one") {
+      } else if (field.type === "many2one" && record[name]) {
         _disconnect(field, record, record[name]);
       }
     }
