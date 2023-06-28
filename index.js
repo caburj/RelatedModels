@@ -1,2 +1,2 @@
-import { createRelatedModels, BaseModel } from "./RelatedModels";
-export { createRelatedModels, BaseModel };
+import { createRelatedModels } from "./RelatedModels";
+export { createRelatedModels };
