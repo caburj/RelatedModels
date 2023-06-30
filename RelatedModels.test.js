@@ -1,4 +1,4 @@
-import { createRelatedModels } from "./RelatedModels";
+import { createRelatedModels, Model } from "./RelatedModels";
 
 function sum(array, selector = (x) => x) {
   return array.reduce((acc, item) => acc + selector(item), 0);
@@ -99,7 +99,7 @@ const modelDefs = {
   },
 };
 
-class Order {
+class Order extends Model {
   getTotal() {
     return sum(
       [...this.orderline_ids],
@@ -107,11 +107,11 @@ class Order {
     );
   }
 }
-class Orderline {}
-class Product {}
-class Tax {}
-class Tag {}
-class Todo {}
+class Orderline extends Model {}
+class Product extends Model {}
+class Tax extends Model {}
+class Tag extends Model {}
+class Todo extends Model {}
 
 const classes = {
   order: Order,
@@ -205,12 +205,12 @@ describe("one2many/many2one", () => {
       });
       const order1 = orderline1.order_id;
       const order2 = orderline2.order_id;
-      models.orderline.update(orderline1, { order_id: order2.id });
+      models.orderline.update(orderline1, { order_id: order2 });
       expect(orderline1.order_id).toBe(order2);
       expect(order2.orderline_ids.size).toBe(2);
       expect(order1.orderline_ids.size).toBe(0);
       models.order.update(order1, {
-        orderline_ids: [["link", orderline1.id, orderline2.id]],
+        orderline_ids: [["link", orderline1, orderline2]],
       });
       expect(order1.orderline_ids.size).toBe(2);
       expect(order2.orderline_ids.size).toBe(0);
@@ -253,7 +253,7 @@ describe("one2many/many2one", () => {
       });
       const order1 = models.order.create({});
       models.order.update(order1, {
-        orderline_ids: [["link", orderline1.id]],
+        orderline_ids: [["link", orderline1]],
       });
       expect(order1.orderline_ids.has(orderline1)).toBe(true);
       expect(orderline1.order_id).toBe(order1);
@@ -275,7 +275,7 @@ describe("one2many/many2one", () => {
         quantity: 1,
       });
       models.order.update(order1, {
-        orderline_ids: [["clear"], ["link", orderline2.id, orderline3.id]],
+        orderline_ids: [["clear"], ["link", orderline2, orderline3]],
       });
       expect(orderline1.order_id).toBe(undefined);
       expect(orderline2.order_id).toBe(order1);
@@ -308,7 +308,7 @@ describe("one2many/many2one", () => {
       expect(orderline2.order_id).toBe(order1);
       expect(orderline3.order_id).toBe(order1);
       models.order.update(order1, {
-        orderline_ids: [["unlink", orderline2.id, orderline3.id]],
+        orderline_ids: [["unlink", orderline2, orderline3]],
       });
       expect(orderline1.order_id).toBe(order1);
       expect(orderline2.order_id).toBe(undefined);
@@ -336,14 +336,14 @@ describe("one2many/many2one", () => {
         quantity: 3,
       });
       models.order.update(order1, {
-        orderline_ids: [["link", ol.id]],
+        orderline_ids: [["link", ol]],
       });
       expect(order1.orderline_ids.size).toBe(3);
       models.orderline.delete(orderline1);
       expect(order1.orderline_ids.size).toBe(2);
       models.order.update(order1, {
         orderline_ids: [
-          ["unlink", ...[...order1.orderline_ids].map((line) => line.id)],
+          ["unlink", ...order1.orderline_ids],
         ],
       });
       expect(order1.orderline_ids.size).toBe(0);
@@ -383,12 +383,12 @@ describe("one2many/many2one", () => {
         quantity: 1,
       });
       expect(orderline.order_id).toBe(undefined);
-      models.orderline.update(orderline, { order_id: order1.id });
+      models.orderline.update(orderline, { order_id: order1 });
       expect(orderline.order_id).toBe(order1);
       expect([...order1.orderline_ids]).toEqual([orderline]);
       models.orderline.update(orderline, { order_id: false });
       expect(orderline.order_id).toBe(undefined);
-      models.orderline.update(orderline, { order_id: order2.id });
+      models.orderline.update(orderline, { order_id: order2 });
       expect(orderline.order_id).toBe(order2);
       expect([...order2.orderline_ids]).toEqual([orderline]);
       models.orderline.update(orderline, { order_id: {} });
@@ -402,7 +402,7 @@ describe("one2many/many2one", () => {
         quantity: 1,
       });
       expect(orderline.order_id).toBe(undefined);
-      models.orderline.update(orderline, { order_id: order1.id });
+      models.orderline.update(orderline, { order_id: order1 });
       expect(orderline.order_id).toBe(order1);
       models.orderline.update(orderline, {});
       expect(orderline.order_id).toBe(order1);
@@ -475,7 +475,7 @@ describe("one2many/many2one", () => {
     });
     it("removes reference to order after orderline is deleted 2", () => {
       models.order.update(order1, {
-        orderline_ids: [["unlink", orderline1.id]],
+        orderline_ids: [["unlink", orderline1]],
       });
       expect(order1.orderline_ids.has(orderline1)).toBe(false);
       expect(orderline1.order_id).toBe(undefined);
@@ -558,7 +558,7 @@ describe("many2many", () => {
         price: Infinity,
       });
       models.tag.update(tag1, {
-        product_ids: [["clear"], ["link", productC.id]],
+        product_ids: [["clear"], ["link", productC]],
       });
       expect([...tag1.product_ids]).toEqual([productC]);
       expect([...productA.tag_ids]).toEqual([]);
@@ -575,7 +575,7 @@ describe("many2many", () => {
       expect([...productA.tag_ids]).toEqual([tag1]);
       const tag2 = models.tag.create({ name: "tag2" });
       models.product.update(productA, {
-        tag_ids: [["link", tag2.id]],
+        tag_ids: [["link", tag2]],
       });
       expect([...productA.tag_ids].map((tag) => tag.id).sort()).toEqual(
         [tag1.id, tag2.id].sort()
@@ -608,7 +608,7 @@ describe("many2many", () => {
       expect([...productB.tag_ids]).toEqual([tag1]);
       expect([...productC.tag_ids]).toEqual([tag1]);
       models.tag.update(tag1, {
-        product_ids: [["unlink", productB.id]],
+        product_ids: [["unlink", productB]],
       });
       expect([...tag1.product_ids].map((product) => product.id).sort()).toEqual(
         [productA.id, productC.id].sort()
@@ -733,7 +733,7 @@ describe("many2many without corresponding relation_ref", () => {
       percentage: 50,
     });
     models.orderline.update(orderline1, {
-      tax_ids: [["link", tax2.id]],
+      tax_ids: [["link", tax2]],
     });
     expect([...orderline1.tax_ids].map((tax) => tax.id).sort()).toEqual(
       [tax1.id, tax2.id].sort()
@@ -759,7 +759,7 @@ describe("many2many without corresponding relation_ref", () => {
       [tax1.id, tax2.id].sort()
     );
     models.orderline.update(orderline1, {
-      tax_ids: [["unlink", tax2.id]],
+      tax_ids: [["unlink", tax2]],
     });
     expect([...orderline1.tax_ids].map((tax) => tax.id)).toEqual([tax1.id]);
   });
@@ -785,7 +785,7 @@ describe("many2many without corresponding relation_ref", () => {
     });
     expect([...orderline1.tax_ids].map((tax) => tax.id)).toEqual([tax2.id]);
     models.orderline.update(orderline1, {
-      tax_ids: [["clear"], ["link", tax1.id, tax3.id]],
+      tax_ids: [["clear"], ["link", tax1, tax3]],
     });
     expect([...orderline1.tax_ids].map((tax) => tax.id).sort()).toEqual(
       [tax3.id, tax1.id].sort()
@@ -872,7 +872,7 @@ describe("model related to itself (many2one)", () => {
     });
     const parent = todo.parent_id;
     const [child1, child2] = todo.children_ids;
-    models.todo.update(parent, { children_ids: [["link", child2.id]] });
+    models.todo.update(parent, { children_ids: [["link", child2]] });
     expect([...todo.children_ids]).toEqual([child1]);
     expect([...parent.children_ids]).toEqual([todo, child2]);
   });

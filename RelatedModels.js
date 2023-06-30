@@ -91,6 +91,8 @@ function processModelDefs(modelDefs) {
   return modelDefs;
 }
 
+export class Model {}
+
 export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
   const processedModelDefs = processModelDefs(modelDefs);
   const records = reactive({});
@@ -238,9 +240,9 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
       const related_to = field.related_to;
       if (X2MANY_TYPES.has(field.type)) {
         for (const command of vals[name]) {
-          const [type, ...items] = command;
+          const [type, ...records] = command;
           if (type === "unlink") {
-            for (const record2 of readMany(related_to, items)) {
+            for (const record2 of records) {
               _disconnect(field, record, record2);
             }
           } else if (type === "clear") {
@@ -249,13 +251,14 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
               _disconnect(field, record, record2);
             }
           } else if (type === "create") {
-            const newRecords = items.map((_vals) => _create(related_to, _vals));
+            const newRecords = records.map((vals) =>
+              _create(related_to, vals)
+            );
             for (const record2 of newRecords) {
               _connect(field, record, record2);
             }
           } else if (type === "link") {
-            const existingIds = items.filter((id) => _exist(related_to, id));
-            const existingRecords = readMany(related_to, existingIds);
+            const existingRecords = records.filter((record) => _exist(related_to, record.id));
             for (const record2 of existingRecords) {
               _connect(field, record, record2);
             }
@@ -263,14 +266,13 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
         }
       } else if (field.type === "many2one") {
         if (vals[name]) {
-          if (typeof vals[name] === "object") {
+          if (vals[name] instanceof Model) {
+            if (_exist(related_to, vals[name].id)) {
+              _connect(field, record, vals[name]);
+            }
+          } else {
             const newRecord = _create(related_to, vals[name]);
             _connect(field, record, newRecord);
-          } else {
-            if (_exist(related_to, vals[name])) {
-              const existing = read(related_to, vals[name]);
-              _connect(field, record, existing);
-            }
           }
         } else {
           const linkedRec = record[name];
