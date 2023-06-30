@@ -230,9 +230,8 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
     return record;
   }
 
-  function _update(model, id, vals) {
+  function _update(model, record, vals) {
     const fields = _getFields(model);
-    const record = read(model, id);
     for (const name in vals) {
       if (!(name in fields)) continue;
       const field = fields[name];
@@ -283,8 +282,8 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
     }
   }
 
-  function _delete(model, id) {
-    const record = read(model, id);
+  function _delete(model, record) {
+    const id = record.id;
     const fields = _getFields(model);
     for (const name in fields) {
       const field = fields[name];
@@ -321,16 +320,16 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
         }
         return result;
       },
-      update(id, vals) {
-        return _update(model, id, vals);
+      update(record, vals) {
+        return _update(model, record, vals);
       },
-      delete(id) {
-        return _delete(model, id);
+      delete(record) {
+        return _delete(model, record);
       },
-      deleteMany(ids) {
+      deleteMany(records) {
         const result = [];
-        for (const id of ids) {
-          result.push(_delete(model, id));
+        for (const record of records) {
+          result.push(_delete(model, record));
         }
         return result;
       },
