@@ -1,6 +1,5 @@
 import {
   createRelatedModels,
-  Model,
   link,
   unlink,
   create,
@@ -106,30 +105,26 @@ const modelDefs = {
   },
 };
 
-class Order extends Model {
-  getTotal() {
-    return sum(
-      [...this.orderline_ids],
-      (line) => line.quantity * line.product_id.price
-    );
+const env = {};
+const reactive = (x) => x;
+
+function createOrderModel(baseModels) {
+  class Order extends baseModels["order"] {
+    getTotal() {
+      return sum(
+        [...this.orderline_ids],
+        (line) => line.quantity * line.product_id.price
+      );
+    }
   }
+  return Order;
 }
-class Orderline extends Model {}
-class Product extends Model {}
-class Tax extends Model {}
-class Tag extends Model {}
-class Todo extends Model {}
 
-const classes = {
-  order: Order,
-  orderline: Orderline,
-  product: Product,
-  tax: Tax,
-  tag: Tag,
-  todo: Todo,
-};
-
-const models = createRelatedModels(modelDefs, classes);
+const models = createRelatedModels(modelDefs, env, reactive, (baseModels) => {
+  return {
+    order: createOrderModel(baseModels),
+  };
+});
 
 let product1, product2, product3;
 beforeAll(async () => {
@@ -895,5 +890,36 @@ describe("model related to itself (many2one)", () => {
     });
     const theSameTodo = models.todo.find((t) => t.id === todo.id);
     expect(theSameTodo).toBe(todo);
+  });
+});
+
+describe("update method", () => {
+  it("updates", () => {
+    const todo = models.todo.create({
+      parent_id: {},
+      children_ids: [create({}, {})],
+    });
+    const parent = todo.parent_id;
+    const [child1, child2] = todo.children_ids;
+    parent.update({ children_ids: [link(child2)] });
+    expect([...todo.children_ids]).toEqual([child1]);
+    expect([...parent.children_ids]).toEqual([todo, child2]);
+  });
+});
+
+describe("delete method", () => {
+  it("deletes", () => {
+    const todo = models.todo.create({
+      parent_id: {},
+      children_ids: [create({}, {})],
+    });
+    const parent = todo.parent_id;
+    const [child1, child2] = todo.children_ids;
+    parent.delete();
+    expect(todo.parent_id).toBe(undefined);
+    child1.delete();
+    expect([...todo.children_ids]).toEqual([child2]);
+    child2.delete();
+    expect([...todo.children_ids]).toEqual([]);
   });
 });

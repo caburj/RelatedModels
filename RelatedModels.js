@@ -109,11 +109,15 @@ export function clear() {
   return CLEAR;
 }
 
-export class Model {}
-
-export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
+export function createRelatedModels(
+  modelDefs,
+  env,
+  reactive = (x) => x,
+  modelOverrides = (x) => x
+) {
   const processedModelDefs = processModelDefs(modelDefs);
   const records = reactive({});
+  class Base {}
 
   for (const model in processedModelDefs) {
     records[model] = reactive({});
@@ -184,8 +188,8 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
       vals["id"] = uuid(model);
     }
 
-    const Class = classes[model];
-    const record = reactive(new Class());
+    const Model = models[model];
+    const record = reactive(new Model(vals));
     const id = vals["id"];
     record.id = id;
     records[model][id] = record;
@@ -236,7 +240,7 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
           }
         } else if (field.type === "many2one") {
           const val = vals[name];
-          if (val instanceof Model) {
+          if (val instanceof Base) {
             if (_exist(related_to, val.id)) {
               _connect(field, record, val);
             }
@@ -249,6 +253,7 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
         record[name] = vals[name];
       }
     }
+    record.setup(vals);
     return record;
   }
 
@@ -286,7 +291,7 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
         }
       } else if (field.type === "many2one") {
         if (vals[name]) {
-          if (vals[name] instanceof Model) {
+          if (vals[name] instanceof Base) {
             if (_exist(related_to, vals[name].id)) {
               _connect(field, record, vals[name]);
             }
@@ -372,6 +377,30 @@ export function createRelatedModels(modelDefs, classes, reactive = (x) => x) {
       },
     };
   }
+
+  const baseModels = Object.fromEntries(
+    Object.entries(processedModelDefs).map(([model, fields]) => {
+      return [
+        model,
+        class Model extends Base {
+          static _name = model;
+          static _fields = fields;
+          setup(_vals) {}
+          get env() {
+            return env;
+          }
+          update(vals) {
+            return _update(model, this, vals);
+          }
+          delete() {
+            return _delete(model, this);
+          }
+        },
+      ];
+    })
+  );
+
+  const models = { ...baseModels, ...modelOverrides(baseModels) };
 
   return Object.fromEntries(
     Object.keys(processedModelDefs).map((model) => [model, createCRUD(model)])
