@@ -1,10 +1,5 @@
-import {
-  createRelatedModels,
-  link,
-  unlink,
-  create,
-  clear,
-} from "./RelatedModels";
+import { createRelatedModels } from "./RelatedModels";
+import { link, unlink, create, clear } from "./commands";
 
 function sum(array, selector = (x) => x) {
   return array.reduce((acc, item) => acc + selector(item), 0);

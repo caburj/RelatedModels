@@ -13,7 +13,6 @@ function clone(obj) {
 
 const RELATION_TYPES = new Set(["many2many", "many2one", "one2many"]);
 const X2MANY_TYPES = new Set(["many2many", "one2many"]);
-const DELIMITER = "/";
 
 function getInverseRelationType(type) {
   return {
@@ -37,7 +36,6 @@ function processModelDefs(modelDefs) {
     for (const fieldName in fields) {
       const field = fields[fieldName];
       field.name = fieldName;
-      field._id = `${model}${DELIMITER}${field.name}`;
       if (!RELATION_TYPES.has(field.type)) continue;
       const relModelFields = modelDefs[field.related_to];
       const relatedField = Object.keys(relModelFields).find((fieldName) => {
@@ -91,22 +89,10 @@ function processModelDefs(modelDefs) {
   return modelDefs;
 }
 
-export function link(...items) {
-  return ["link", ...items];
-}
-
-export function unlink(...items) {
-  return ["unlink", ...items];
-}
-
-export function create(...items) {
-  return ["create", ...items];
-}
-
-const CLEAR = ["clear"];
-
-export function clear() {
-  return CLEAR;
+function mapObj(obj, fn) {
+  return Object.fromEntries(
+    Object.entries(obj).map(([k, v], i) => [k, fn(k, v, i)])
+  );
 }
 
 export function createRelatedModels(
@@ -116,18 +102,14 @@ export function createRelatedModels(
   modelOverrides = (x) => x
 ) {
   const processedModelDefs = processModelDefs(modelDefs);
-  const records = reactive({});
+  const records = reactive(mapObj(processedModelDefs, () => reactive({})));
   class Base {}
 
-  for (const model in processedModelDefs) {
-    records[model] = reactive({});
-  }
-
-  function _getFields(model) {
+  function getFields(model) {
     return processedModelDefs[model];
   }
 
-  function _connect(field, ownerRecord, recordToConnect) {
+  function connect(field, ownerRecord, recordToConnect) {
     const inverse = field.inverse;
 
     if (field.type === "many2one") {
@@ -156,7 +138,7 @@ export function createRelatedModels(
     }
   }
 
-  function _disconnect(field, ownerRecord, recordToDisconnect) {
+  function disconnect(field, ownerRecord, recordToDisconnect) {
     if (!recordToDisconnect) {
       throw new Error("recordToDisconnect is undefined");
     }
@@ -179,11 +161,11 @@ export function createRelatedModels(
     }
   }
 
-  function _exist(model, id) {
+  function exists(model, id) {
     return id in records[model];
   }
 
-  function _create(model, vals) {
+  function create(model, vals) {
     if (!("id" in vals)) {
       vals["id"] = uuid(model);
     }
@@ -194,7 +176,7 @@ export function createRelatedModels(
     record.id = id;
     records[model][id] = record;
 
-    const fields = _getFields(model);
+    const fields = getFields(model);
     for (const name in fields) {
       if (name === "id") {
         continue;
@@ -224,29 +206,29 @@ export function createRelatedModels(
           for (const [command, ...items] of vals[name]) {
             if (command === "create") {
               const newRecords = items.map((_vals) =>
-                _create(related_to, _vals)
+                create(related_to, _vals)
               );
               for (const record2 of newRecords) {
-                _connect(field, record, record2);
+                connect(field, record, record2);
               }
             } else if (command === "link") {
               const existingRecords = items.filter((record) =>
-                _exist(related_to, record.id)
+                exists(related_to, record.id)
               );
               for (const record2 of existingRecords) {
-                _connect(field, record, record2);
+                connect(field, record, record2);
               }
             }
           }
         } else if (field.type === "many2one") {
           const val = vals[name];
           if (val instanceof Base) {
-            if (_exist(related_to, val.id)) {
-              _connect(field, record, val);
+            if (exists(related_to, val.id)) {
+              connect(field, record, val);
             }
           } else {
-            const newRecord = _create(related_to, val);
-            _connect(field, record, newRecord);
+            const newRecord = create(related_to, val);
+            connect(field, record, newRecord);
           }
         }
       } else {
@@ -257,8 +239,8 @@ export function createRelatedModels(
     return record;
   }
 
-  function _update(model, record, vals) {
-    const fields = _getFields(model);
+  function update(model, record, vals) {
+    const fields = getFields(model);
     for (const name in vals) {
       if (!(name in fields)) continue;
       const field = fields[name];
@@ -268,40 +250,40 @@ export function createRelatedModels(
           const [type, ...items] = command;
           if (type === "unlink") {
             for (const record2 of items) {
-              _disconnect(field, record, record2);
+              disconnect(field, record, record2);
             }
           } else if (type === "clear") {
             const linkedRecs = record[name];
             for (const record2 of [...linkedRecs]) {
-              _disconnect(field, record, record2);
+              disconnect(field, record, record2);
             }
           } else if (type === "create") {
-            const newRecords = items.map((vals) => _create(related_to, vals));
+            const newRecords = items.map((vals) => create(related_to, vals));
             for (const record2 of newRecords) {
-              _connect(field, record, record2);
+              connect(field, record, record2);
             }
           } else if (type === "link") {
             const existingRecords = items.filter((record) =>
-              _exist(related_to, record.id)
+              exists(related_to, record.id)
             );
             for (const record2 of existingRecords) {
-              _connect(field, record, record2);
+              connect(field, record, record2);
             }
           }
         }
       } else if (field.type === "many2one") {
         if (vals[name]) {
           if (vals[name] instanceof Base) {
-            if (_exist(related_to, vals[name].id)) {
-              _connect(field, record, vals[name]);
+            if (exists(related_to, vals[name].id)) {
+              connect(field, record, vals[name]);
             }
           } else {
-            const newRecord = _create(related_to, vals[name]);
-            _connect(field, record, newRecord);
+            const newRecord = create(related_to, vals[name]);
+            connect(field, record, newRecord);
           }
         } else {
           const linkedRec = record[name];
-          _disconnect(field, record, linkedRec);
+          disconnect(field, record, linkedRec);
         }
       } else {
         record[name] = vals[name];
@@ -309,65 +291,57 @@ export function createRelatedModels(
     }
   }
 
-  function _delete(model, record) {
+  function delete_(model, record) {
     const id = record.id;
-    const fields = _getFields(model);
+    const fields = getFields(model);
     for (const name in fields) {
       const field = fields[name];
       if (X2MANY_TYPES.has(field.type)) {
         for (const record2 of [...record[name]]) {
-          _disconnect(field, record, record2);
+          disconnect(field, record, record2);
         }
       } else if (field.type === "many2one" && record[name]) {
-        _disconnect(field, record, record[name]);
+        disconnect(field, record, record[name]);
       }
     }
     delete records[model][id];
   }
 
-  function read(model, id) {
-    if (!(model in records)) return;
-    return records[model][id];
-  }
-
-  function readMany(model, ids) {
-    if (!(model in records)) return [];
-    return ids.map((id) => records[model][id]);
-  }
-
   function createCRUD(model) {
     return {
       create(vals) {
-        return _create(model, vals);
+        return create(model, vals);
       },
       createMany(valsList) {
         const result = [];
         for (const vals of valsList) {
-          result.push(_create(model, vals));
+          result.push(create(model, vals));
         }
         return result;
       },
       update(record, vals) {
-        return _update(model, record, vals);
+        return update(model, record, vals);
       },
       delete(record) {
-        return _delete(model, record);
+        return delete_(model, record);
       },
       deleteMany(records) {
         const result = [];
         for (const record of records) {
-          result.push(_delete(model, record));
+          result.push(delete_(model, record));
         }
         return result;
       },
       read(id) {
-        return read(model, id);
+        if (!(model in records)) return;
+        return records[model][id];
       },
       readAll() {
         return Object.values(records[model]);
       },
       readMany(ids) {
-        return readMany(model, ids);
+        if (!(model in records)) return [];
+        return ids.map((id) => records[model][id]);
       },
       find(predicate) {
         return Object.values(records[model]).find(predicate);
@@ -378,31 +352,28 @@ export function createRelatedModels(
     };
   }
 
-  const baseModels = Object.fromEntries(
-    Object.entries(processedModelDefs).map(([model, fields]) => {
-      return [
-        model,
-        class Model extends Base {
-          static _name = model;
-          static _fields = fields;
-          setup(_vals) {}
-          get env() {
-            return env;
-          }
-          update(vals) {
-            return _update(model, this, vals);
-          }
-          delete() {
-            return _delete(model, this);
-          }
-        },
-      ];
-    })
-  );
+  const baseModels = mapObj(processedModelDefs, (model, fields) => {
+    class Model extends Base {
+      static _name = model;
+      static _fields = fields;
+      /**
+       * Called after the instantiation of the record.
+       */
+      setup(_vals) {}
+      get env() {
+        return env;
+      }
+      update(vals) {
+        return update(model, this, vals);
+      }
+      delete() {
+        return delete_(model, this);
+      }
+    }
+    return Model;
+  });
 
   const models = { ...baseModels, ...modelOverrides(baseModels) };
 
-  return Object.fromEntries(
-    Object.keys(processedModelDefs).map((model) => [model, createCRUD(model)])
-  );
+  return mapObj(processedModelDefs, (model) => createCRUD(model));
 }
