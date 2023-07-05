@@ -352,6 +352,18 @@ export function createRelatedModels(
     };
   }
 
+  /**
+   * Return a contructor that extends the given `Model` with the given `name`.
+   * @param {Constructor} Model
+   * @param {string} name
+   * @returns {Constructor}
+   */
+  function namedModel(Model, name) {
+    return new Function("Model", `return class ${name} extends Model {};`)(
+      Model
+    );
+  }
+
   const baseModels = mapObj(processedModelDefs, (model, fields) => {
     class Model extends Base {
       static _name = model;
@@ -370,7 +382,14 @@ export function createRelatedModels(
         return delete_(model, this);
       }
     }
-    return Model;
+
+    return namedModel(
+      Model,
+      model
+        .split(".")
+        .map((word) => word[0].toUpperCase() + word.slice(1))
+        .join("")
+    );
   });
 
   const models = { ...baseModels, ...modelOverrides(baseModels) };
