@@ -7,85 +7,14 @@ function uuid(model) {
   return `${model}_${ID_CONTAINER[model]++}`;
 }
 
+let dummyNameId = 1;
+
+function getDummyName(model, suffix) {
+  return `dummy_${model}_${dummyNameId++}_${suffix}`;
+}
+
 function clone(obj) {
   return JSON.parse(JSON.stringify(obj));
-}
-
-const RELATION_TYPES = new Set(["many2many", "many2one", "one2many"]);
-const X2MANY_TYPES = new Set(["many2many", "one2many"]);
-
-function getInverseRelationType(type) {
-  return {
-    many2many: "many2many",
-    many2one: "one2many",
-    one2many: "many2one",
-  }[type];
-}
-
-function inverseGetter(field1, field2) {
-  if (field1.relation_ref !== field2.relation_ref) {
-    throw new Error("Provided fields should have the same relation_ref");
-  }
-  return (field) => (field === field1 ? field2 : field1);
-}
-
-function processModelDefs(modelDefs) {
-  modelDefs = clone(modelDefs);
-  for (const model in modelDefs) {
-    const fields = modelDefs[model];
-    for (const fieldName in fields) {
-      const field = fields[fieldName];
-      if (!RELATION_TYPES.has(field.type)) continue;
-      const relModelFields = modelDefs[field.relation];
-      const relatedField = Object.keys(relModelFields).find((fieldName) => {
-        const _field = relModelFields[fieldName];
-        if (!_field.relation) return false;
-        return (
-          _field.relation === model &&
-          _field.relation_ref === field.relation_ref
-        );
-      });
-      if (relatedField) continue;
-      const dummyField = {
-        type: getInverseRelationType(field.type),
-        relation: model,
-        relation_ref: field.relation_ref,
-        dummy: true,
-      };
-      const dummyFieldName =
-        dummyField.type === "many2one"
-          ? `dummy_${model}_id`
-          : `dummy_${model}_ids`;
-      dummyField.name = dummyFieldName;
-      relModelFields[dummyFieldName] = dummyField;
-    }
-  }
-  const relatedFields = {};
-  for (const model in modelDefs) {
-    const fields = modelDefs[model];
-    for (const fieldName in fields) {
-      const field = fields[fieldName];
-      if (!RELATION_TYPES.has(field.type)) continue;
-      if (field.relation_ref in relatedFields) {
-        relatedFields[field.relation_ref].push(field);
-      } else {
-        relatedFields[field.relation_ref] = [field];
-      }
-    }
-  }
-  const inverseGetters = {};
-  for (const ref in relatedFields) {
-    inverseGetters[ref] = inverseGetter(...relatedFields[ref]);
-  }
-  for (const model in modelDefs) {
-    const fields = modelDefs[model];
-    for (const fieldName in fields) {
-      const field = fields[fieldName];
-      if (!RELATION_TYPES.has(field.type)) continue;
-      field.inverse = inverseGetters[field.relation_ref](field);
-    }
-  }
-  return modelDefs;
 }
 
 function mapObj(obj, fn) {
@@ -94,13 +23,102 @@ function mapObj(obj, fn) {
   );
 }
 
+const RELATION_TYPES = new Set(["many2many", "many2one", "one2many"]);
+const X2MANY_TYPES = new Set(["many2many", "one2many"]);
+
+function processModelDefs(modelDefs) {
+  modelDefs = clone(modelDefs);
+  const inverseMap = new Map();
+  const many2oneFields = [];
+  for (const model in modelDefs) {
+    const fields = modelDefs[model];
+    for (const fieldName in fields) {
+      const field = fields[fieldName];
+      if (!RELATION_TYPES.has(field.type)) continue;
+
+      if (inverseMap.has(field)) {
+        continue;
+      }
+
+      const comodel = modelDefs[field.comodel_name];
+      if (!comodel) {
+        throw new Error(`Model ${field.comodel_name} not found`);
+      }
+
+      if (field.type === "many2many") {
+        let [inverseField, ...others] = Object.values(comodel).filter(
+          (f) => f.relation_ref === field.relation_ref
+        );
+        if (others.length > 0) {
+          throw new Error("Many2many relation must have only one inverse");
+        }
+        if (!inverseField) {
+          const dummyName = getDummyName(model, "ids");
+          inverseField = {
+            name: dummyName,
+            type: "many2many",
+            comodel_name: model,
+            relation_ref: field.relation_ref,
+            dummy: true,
+          };
+          comodel[dummyName] = inverseField;
+        }
+        inverseMap.set(field, inverseField);
+        inverseMap.set(inverseField, field);
+      } else if (field.type === "one2many") {
+        let inverseField = Object.values(comodel).find(
+          (f) => f.comodel_name === model && f.name === field.inverse_name
+        );
+        if (!inverseField) {
+          const dummyName = getDummyName(model, "id");
+          inverseField = {
+            name: dummyName,
+            type: "many2one",
+            comodel_name: model,
+            dummy: true,
+          };
+          comodel[dummyName] = inverseField;
+        }
+        inverseMap.set(field, inverseField);
+        inverseMap.set(inverseField, field);
+      } else if (field.type === "many2one") {
+        many2oneFields.push([model, field]);
+      }
+    }
+  }
+
+  for (const [model, field] of many2oneFields) {
+    if (inverseMap.has(field)) {
+      continue;
+    }
+
+    const comodel = modelDefs[field.comodel_name];
+    if (!comodel) {
+      throw new Error(`Model ${field.comodel_name} not found`);
+    }
+
+    const dummyName = getDummyName(model, "ids");
+    const dummyField = {
+      name: dummyName,
+      type: "one2many",
+      comodel_name: model,
+      inverse_name: field.name,
+      dummy: true,
+    };
+    comodel[dummyName] = dummyField;
+    inverseMap.set(field, dummyField);
+    inverseMap.set(dummyField, field);
+  }
+  return [inverseMap, modelDefs];
+}
+
 export function createRelatedModels(
   modelDefs,
   env,
   reactive = (x) => x,
   modelOverrides = (x) => x
 ) {
-  const processedModelDefs = processModelDefs(modelDefs);
+  const [inverseMap, processedModelDefs] = processModelDefs(modelDefs);
   const records = reactive(mapObj(processedModelDefs, () => reactive({})));
   class Base {}
 
@@ -109,7 +127,7 @@ export function createRelatedModels(
   }
 
   function connect(field, ownerRecord, recordToConnect) {
-    const inverse = field.inverse;
+    const inverse = inverseMap.get(field);
 
     if (field.type === "many2one") {
       const prevConnectedRecord = ownerRecord[field.name];
@@ -141,7 +159,7 @@ export function createRelatedModels(
     if (!recordToDisconnect) {
       throw new Error("recordToDisconnect is undefined");
     }
-    const inverse = field.inverse;
+    const inverse = inverseMap.get(field);
     if (field.type === "many2one") {
       const prevConnectedRecord = ownerRecord[field.name];
       if (prevConnectedRecord === recordToDisconnect) {
@@ -196,7 +214,7 @@ export function createRelatedModels(
           record[name] = undefined;
         }
 
-        const relation = field.relation;
+        const comodelName = field.comodel_name;
         if (!vals[name]) {
           continue;
         }
@@ -205,14 +223,14 @@ export function createRelatedModels(
           for (const [command, ...items] of vals[name]) {
             if (command === "create") {
               const newRecords = items.map((_vals) =>
-                create(relation, _vals)
+                create(comodelName, _vals)
               );
               for (const record2 of newRecords) {
                 connect(field, record, record2);
               }
             } else if (command === "link") {
               const existingRecords = items.filter((record) =>
-                exists(relation, record.id)
+                exists(comodelName, record.id)
               );
               for (const record2 of existingRecords) {
                 connect(field, record, record2);
@@ -222,11 +240,11 @@ export function createRelatedModels(
         } else if (field.type === "many2one") {
           const val = vals[name];
           if (val instanceof Base) {
-            if (exists(relation, val.id)) {
+            if (exists(comodelName, val.id)) {
               connect(field, record, val);
             }
           } else {
-            const newRecord = create(relation, val);
+            const newRecord = create(comodelName, val);
             connect(field, record, newRecord);
           }
         }
@@ -243,7 +261,7 @@ export function createRelatedModels(
     for (const name in vals) {
       if (!(name in fields)) continue;
       const field = fields[name];
-      const relation = field.relation;
+      const comodelName = field.comodel_name;
       if (X2MANY_TYPES.has(field.type)) {
         for (const command of vals[name]) {
           const [type, ...items] = command;
@@ -257,13 +275,13 @@ export function createRelatedModels(
               disconnect(field, record, record2);
             }
           } else if (type === "create") {
-            const newRecords = items.map((vals) => create(relation, vals));
+            const newRecords = items.map((vals) => create(comodelName, vals));
             for (const record2 of newRecords) {
               connect(field, record, record2);
             }
           } else if (type === "link") {
             const existingRecords = items.filter((record) =>
-              exists(relation, record.id)
+              exists(comodelName, record.id)
             );
             for (const record2 of existingRecords) {
               connect(field, record, record2);
@@ -273,11 +291,11 @@ export function createRelatedModels(
       } else if (field.type === "many2one") {
         if (vals[name]) {
           if (vals[name] instanceof Base) {
-            if (exists(relation, vals[name].id)) {
+            if (exists(comodelName, vals[name].id)) {
               connect(field, record, vals[name]);
             }
           } else {
-            const newRecord = create(relation, vals[name]);
+            const newRecord = create(comodelName, vals[name]);
             connect(field, record, newRecord);
           }
         } else {

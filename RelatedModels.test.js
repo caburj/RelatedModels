@@ -19,7 +19,7 @@ const modelDefs = {
     product_ids: {
       name: "product_ids",
       type: "many2many",
-      relation: "product",
+      comodel_name: "product",
       relation_ref: "product_tag_rel",
     },
   },
@@ -31,8 +31,8 @@ const modelDefs = {
     orderline_ids: {
       name: "orderline_ids",
       type: "one2many",
-      relation: "orderline",
-      relation_ref: "order_orderline_rel",
+      comodel_name: "orderline",
+      inverse_name: "order_id",
     },
   },
   orderline: {
@@ -43,14 +43,12 @@ const modelDefs = {
     order_id: {
       name: "order_id",
       type: "many2one",
-      relation: "order",
-      relation_ref: "order_orderline_rel",
+      comodel_name: "order",
     },
     product_id: {
       name: "product_id",
       type: "many2one",
-      relation: "product",
-      relation_ref: "orderline_product_rel",
+      comodel_name: "product",
       required: true,
     },
     quantity: {
@@ -61,7 +59,7 @@ const modelDefs = {
     tax_ids: {
       name: "tax_ids",
       type: "many2many",
-      relation: "tax",
+      comodel_name: "tax",
       relation_ref: "orderline_tax_rel",
     },
   },
@@ -83,7 +81,7 @@ const modelDefs = {
     tag_ids: {
       name: "tag_ids",
       type: "many2many",
-      relation: "tag",
+      comodel_name: "tag",
       relation_ref: "product_tag_rel",
     },
   },
@@ -110,14 +108,13 @@ const modelDefs = {
     children_ids: {
       name: "children_ids",
       type: "one2many",
-      relation: "todo",
-      relation_ref: "parent_children_todo_rel",
+      inverse_name: "parent_id",
+      comodel_name: "todo",
     },
     parent_id: {
       name: "parent_id",
       type: "many2one",
-      relation: "todo",
-      relation_ref: "parent_children_todo_rel",
+      comodel_name: "todo",
     },
   },
 };
