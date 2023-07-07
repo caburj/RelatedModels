@@ -8,13 +8,16 @@ function sum(array, selector = (x) => x) {
 const modelDefs = {
   tag: {
     id: {
+      name: "id",
       type: "string",
     },
     name: {
+      name: "name",
       type: "string",
       required: true,
     },
     product_ids: {
+      name: "product_ids",
       type: "many2many",
       relation: "product",
       relation_ref: "product_tag_rel",
@@ -22,9 +25,11 @@ const modelDefs = {
   },
   order: {
     id: {
+      name: "id",
       type: "string",
     },
     orderline_ids: {
+      name: "orderline_ids",
       type: "one2many",
       relation: "orderline",
       relation_ref: "order_orderline_rel",
@@ -32,24 +37,29 @@ const modelDefs = {
   },
   orderline: {
     id: {
+      name: "id",
       type: "string",
     },
     order_id: {
+      name: "order_id",
       type: "many2one",
       relation: "order",
       relation_ref: "order_orderline_rel",
     },
     product_id: {
+      name: "product_id",
       type: "many2one",
       relation: "product",
       relation_ref: "orderline_product_rel",
       required: true,
     },
     quantity: {
+      name: "quantity",
       type: "number",
       required: true,
     },
     tax_ids: {
+      name: "tax_ids",
       type: "many2many",
       relation: "tax",
       relation_ref: "orderline_tax_rel",
@@ -57,17 +67,21 @@ const modelDefs = {
   },
   product: {
     id: {
+      name: "id",
       type: "string",
     },
     name: {
+      name: "name",
       type: "string",
       required: true,
     },
     price: {
+      name: "price",
       type: "number",
       required: true,
     },
     tag_ids: {
+      name: "tag_ids",
       type: "many2many",
       relation: "tag",
       relation_ref: "product_tag_rel",
@@ -75,24 +89,32 @@ const modelDefs = {
   },
   tax: {
     id: {
+      name: "id",
       type: "string",
     },
     name: {
+      name: "name",
       type: "string",
     },
     percentage: {
+      name: "percentage",
       type: "number",
       required: true,
     },
   },
   todo: {
-    id: { type: "string" },
+    id: {
+      name: "id",
+      type: "string",
+    },
     children_ids: {
+      name: "children_ids",
       type: "one2many",
       relation: "todo",
       relation_ref: "parent_children_todo_rel",
     },
     parent_id: {
+      name: "parent_id",
       type: "many2one",
       relation: "todo",
       relation_ref: "parent_children_todo_rel",

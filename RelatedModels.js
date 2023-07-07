@@ -35,7 +35,6 @@ function processModelDefs(modelDefs) {
     const fields = modelDefs[model];
     for (const fieldName in fields) {
       const field = fields[fieldName];
-      field.name = fieldName;
       if (!RELATION_TYPES.has(field.type)) continue;
       const relModelFields = modelDefs[field.relation];
       const relatedField = Object.keys(relModelFields).find((fieldName) => {
