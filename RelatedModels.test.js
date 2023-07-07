@@ -16,7 +16,7 @@ const modelDefs = {
     },
     product_ids: {
       type: "many2many",
-      related_to: "product",
+      relation: "product",
       relation_ref: "product_tag_rel",
     },
   },
@@ -26,7 +26,7 @@ const modelDefs = {
     },
     orderline_ids: {
       type: "one2many",
-      related_to: "orderline",
+      relation: "orderline",
       relation_ref: "order_orderline_rel",
     },
   },
@@ -36,12 +36,12 @@ const modelDefs = {
     },
     order_id: {
       type: "many2one",
-      related_to: "order",
+      relation: "order",
       relation_ref: "order_orderline_rel",
     },
     product_id: {
       type: "many2one",
-      related_to: "product",
+      relation: "product",
       relation_ref: "orderline_product_rel",
       required: true,
     },
@@ -51,7 +51,7 @@ const modelDefs = {
     },
     tax_ids: {
       type: "many2many",
-      related_to: "tax",
+      relation: "tax",
       relation_ref: "orderline_tax_rel",
     },
   },
@@ -69,7 +69,7 @@ const modelDefs = {
     },
     tag_ids: {
       type: "many2many",
-      related_to: "tag",
+      relation: "tag",
       relation_ref: "product_tag_rel",
     },
   },
@@ -89,12 +89,12 @@ const modelDefs = {
     id: { type: "string" },
     children_ids: {
       type: "one2many",
-      related_to: "todo",
+      relation: "todo",
       relation_ref: "parent_children_todo_rel",
     },
     parent_id: {
       type: "many2one",
-      related_to: "todo",
+      relation: "todo",
       relation_ref: "parent_children_todo_rel",
     },
   },

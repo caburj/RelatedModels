@@ -37,19 +37,19 @@ function processModelDefs(modelDefs) {
       const field = fields[fieldName];
       field.name = fieldName;
       if (!RELATION_TYPES.has(field.type)) continue;
-      const relModelFields = modelDefs[field.related_to];
+      const relModelFields = modelDefs[field.relation];
       const relatedField = Object.keys(relModelFields).find((fieldName) => {
         const _field = relModelFields[fieldName];
-        if (!_field.related_to) return false;
+        if (!_field.relation) return false;
         return (
-          _field.related_to === model &&
+          _field.relation === model &&
           _field.relation_ref === field.relation_ref
         );
       });
       if (relatedField) continue;
       const dummyField = {
         type: getInverseRelationType(field.type),
-        related_to: model,
+        relation: model,
         relation_ref: field.relation_ref,
         dummy: true,
       };
@@ -197,7 +197,7 @@ export function createRelatedModels(
           record[name] = undefined;
         }
 
-        const related_to = field.related_to;
+        const relation = field.relation;
         if (!vals[name]) {
           continue;
         }
@@ -206,14 +206,14 @@ export function createRelatedModels(
           for (const [command, ...items] of vals[name]) {
             if (command === "create") {
               const newRecords = items.map((_vals) =>
-                create(related_to, _vals)
+                create(relation, _vals)
               );
               for (const record2 of newRecords) {
                 connect(field, record, record2);
               }
             } else if (command === "link") {
               const existingRecords = items.filter((record) =>
-                exists(related_to, record.id)
+                exists(relation, record.id)
               );
               for (const record2 of existingRecords) {
                 connect(field, record, record2);
@@ -223,11 +223,11 @@ export function createRelatedModels(
         } else if (field.type === "many2one") {
           const val = vals[name];
           if (val instanceof Base) {
-            if (exists(related_to, val.id)) {
+            if (exists(relation, val.id)) {
               connect(field, record, val);
             }
           } else {
-            const newRecord = create(related_to, val);
+            const newRecord = create(relation, val);
             connect(field, record, newRecord);
           }
         }
@@ -244,7 +244,7 @@ export function createRelatedModels(
     for (const name in vals) {
       if (!(name in fields)) continue;
       const field = fields[name];
-      const related_to = field.related_to;
+      const relation = field.relation;
       if (X2MANY_TYPES.has(field.type)) {
         for (const command of vals[name]) {
           const [type, ...items] = command;
@@ -258,13 +258,13 @@ export function createRelatedModels(
               disconnect(field, record, record2);
             }
           } else if (type === "create") {
-            const newRecords = items.map((vals) => create(related_to, vals));
+            const newRecords = items.map((vals) => create(relation, vals));
             for (const record2 of newRecords) {
               connect(field, record, record2);
             }
           } else if (type === "link") {
             const existingRecords = items.filter((record) =>
-              exists(related_to, record.id)
+              exists(relation, record.id)
             );
             for (const record2 of existingRecords) {
               connect(field, record, record2);
@@ -274,11 +274,11 @@ export function createRelatedModels(
       } else if (field.type === "many2one") {
         if (vals[name]) {
           if (vals[name] instanceof Base) {
-            if (exists(related_to, vals[name].id)) {
+            if (exists(relation, vals[name].id)) {
               connect(field, record, vals[name]);
             }
           } else {
-            const newRecord = create(related_to, vals[name]);
+            const newRecord = create(relation, vals[name]);
             connect(field, record, newRecord);
           }
         } else {
