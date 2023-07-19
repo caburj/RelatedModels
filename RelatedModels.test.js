@@ -1,5 +1,7 @@
 import { createRelatedModels } from "./RelatedModels";
 import { link, unlink, create, clear } from "./commands";
+import { onCompute, onInvalidate } from "./computed";
+import { reactive } from "./reactivity";
 
 function sum(array, selector = (x) => x) {
   return array.reduce((acc, item) => acc + selector(item), 0);
@@ -120,18 +122,22 @@ const modelDefs = {
 };
 
 const env = {};
-const reactive = (x) => x;
 
 function createOrderModel(baseModels) {
   class Order extends baseModels["order"] {
-    getTotal() {
+    get_total() {
       return sum(
         [...this.orderline_ids],
         (line) => line.quantity * line.product_id.price
       );
     }
   }
-  return Order;
+  // Making it more complicated to illustrate that inheritance works.
+  return class ExtendedOrder extends Order {
+    get_total() {
+      return super.get_total() + 100;
+    }
+  };
 }
 
 const models = createRelatedModels(modelDefs, env, reactive, (baseModels) => {
@@ -844,6 +850,15 @@ describe("many2many without corresponding relation_ref", () => {
 
 describe("class methods", () => {
   it("calls the class methods", () => {
+    let computeCount = 0;
+    let invalidateCount = 0;
+    const dispose1 = onCompute(() => {
+      computeCount++;
+    })
+    const dispose2 = onInvalidate(() => {
+      invalidateCount++;
+    })
+
     const product1 = models.product.create({
       name: "product1",
       price: 10,
@@ -856,9 +871,40 @@ describe("class methods", () => {
     const order1 = models.order.create({
       orderline_ids: [link(...orderlines)],
     });
-    expect(order1.getTotal()).toBe(3 * 10 + 2 * 5);
-    models.product.update(product1, { price: 100 });
-    expect(order1.getTotal()).toBe(3 * 100 + 2 * 5);
+    expect(order1.total).toBe(3 * 10 + 2 * 5 + 100);
+    // compute called once
+    expect(computeCount).toBe(1);
+    // access again the total, compute should not be called again.
+    expect(order1.total).toBe(3 * 10 + 2 * 5 + 100);
+    expect(computeCount).toBe(1);
+
+    // updating any object linked to the total,
+    // should only invalidate the total, but not compute it.
+    product1.update({ price: 100 });
+    expect(invalidateCount).toBe(1);
+    expect(computeCount).toBe(1);
+
+    // further update should not trigger compute
+    // also, should not trigger invalidate
+    for (const orderline of order1.orderline_ids) {
+      orderline.update({
+        quantity: orderline.quantity + 5,
+      });
+    }
+    expect(invalidateCount).toBe(1);
+    expect(computeCount).toBe(1);
+
+    // accessing the total should trigger compute
+    order1.total;
+    expect(computeCount).toBe(2);
+    expect(invalidateCount).toBe(1);
+
+    // total should be correct after recomputation
+    expect(order1.total).toBe((3 + 5) * 100 + (2 + 5) * 5 + 100);
+    expect(computeCount).toBe(2);
+
+    dispose1();
+    dispose2();
   });
 });
 

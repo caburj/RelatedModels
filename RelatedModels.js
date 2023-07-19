@@ -1,3 +1,5 @@
+import { computed } from "./computed";
+
 const ID_CONTAINER = {};
 
 function uuid(model) {
@@ -410,6 +412,60 @@ export function createRelatedModels(
   });
 
   const models = { ...baseModels, ...modelOverrides(baseModels) };
+
+  // prefix of getters that will be optimized.
+  const SPECIAL_METHOD_PREFIX = "get_";
+
+  /**
+   * traverse the prototype chain and return all methods.
+   * @param {object} proto
+   * @returns {string[]}
+   */
+  function getAllMethods(proto) {
+    const methods = new Set();
+    while (proto !== null) {
+      const protoMethods = Object.getOwnPropertyNames(proto).filter(
+        (name) => typeof proto[name] === "function"
+      );
+      for (const methodName of protoMethods) {
+        methods.add(methodName);
+      }
+      proto = Object.getPrototypeOf(proto);
+    }
+    return [...methods];
+  }
+
+  /**
+   * create a corresponding optimized getters for methods that start with `get_`.
+   * e.g. `get_name()` will be optimized to `get name()`.
+   * @param {*} proto
+   */
+  function setOptimizedGetters(proto) {
+    const methodNames = getAllMethods(proto);
+    for (const methodName of methodNames) {
+      if (!methodName.startsWith(SPECIAL_METHOD_PREFIX)) continue;
+      const getterName = methodName.slice(SPECIAL_METHOD_PREFIX.length);
+      if (getterName in proto) {
+        throw new Error(`Getter name conflict: '${getterName}'`);
+      }
+
+      // Call the method as late as possible. For real lazy evaluation.
+      let getter;
+      Object.defineProperty(proto, getterName, {
+        get() {
+          if (!getter) {
+            getter = computed((r) => r[methodName](), { deps: [this] });
+          }
+          return getter();
+        },
+      });
+    }
+  }
+
+  for (const model in models) {
+    const Model = models[model];
+    setOptimizedGetters(Model.prototype);
+  }
 
   return mapObj(processedModelDefs, (model) => createCRUD(model));
 }
