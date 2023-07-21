@@ -1,4 +1,5 @@
 import { computed } from "./computed";
+import { markRaw } from "./reactivity";
 
 const ID_CONTAINER = {};
 
@@ -122,7 +123,28 @@ export function createRelatedModels(
 ) {
   const [inverseMap, processedModelDefs] = processModelDefs(modelDefs);
   const records = reactive(mapObj(processedModelDefs, () => reactive({})));
-  class Base {}
+
+  // maps the model to its set of getters.
+  // Values are filled during the compilation of the models.
+  const getterMap = new Map();
+
+  class Base {
+    computedProps = markRaw(new Map());
+    get(computedProp) {
+      const getters = getterMap.get(this.constructor);
+      if (!getters.has(computedProp)) {
+        throw new Error(`Getter '${computedProp}' not found`);
+      }
+      if (!this.computedProps.has(computedProp)) {
+        this.computedProps.set(
+          computedProp,
+          computed((x) => x[computedProp], { deps: [this] })
+        );
+      }
+      const getVal = this.computedProps.get(computedProp);
+      return getVal();
+    }
+  }
 
   function getFields(model) {
     return processedModelDefs[model];
@@ -413,58 +435,30 @@ export function createRelatedModels(
 
   const models = { ...baseModels, ...modelOverrides(baseModels) };
 
-  // prefix of getters that will be optimized.
-  const SPECIAL_METHOD_PREFIX = "get_";
-
   /**
    * traverse the prototype chain and return all methods.
    * @param {object} proto
    * @returns {string[]}
    */
-  function getAllMethods(proto) {
-    const methods = new Set();
+  function getAllGetters(proto) {
+    const getters = new Set();
     while (proto !== null) {
-      const protoMethods = Object.getOwnPropertyNames(proto).filter(
-        (name) => typeof proto[name] === "function"
-      );
-      for (const methodName of protoMethods) {
-        methods.add(methodName);
+      const descriptors = Object.getOwnPropertyDescriptors(proto);
+      for (const [name, descriptor] of Object.entries(descriptors)) {
+        if (descriptor.get) {
+          getters.add(name);
+        }
       }
       proto = Object.getPrototypeOf(proto);
     }
-    return [...methods];
+    return [...getters];
   }
 
-  /**
-   * create a corresponding optimized getters for methods that start with `get_`.
-   * e.g. `get_name()` will be optimized to `get name()`.
-   * @param {*} proto
-   */
-  function setOptimizedGetters(proto) {
-    const methodNames = getAllMethods(proto);
-    for (const methodName of methodNames) {
-      if (!methodName.startsWith(SPECIAL_METHOD_PREFIX)) continue;
-      const getterName = methodName.slice(SPECIAL_METHOD_PREFIX.length);
-      if (getterName in proto) {
-        throw new Error(`Getter name conflict: '${getterName}'`);
-      }
-
-      // Call the method as late as possible. For real lazy evaluation.
-      let getter;
-      Object.defineProperty(proto, getterName, {
-        get() {
-          if (!getter) {
-            getter = computed((r) => r[methodName](), { deps: [this] });
-          }
-          return getter();
-        },
-      });
-    }
-  }
-
+  // Set the getterMap
   for (const model in models) {
     const Model = models[model];
-    setOptimizedGetters(Model.prototype);
+    const getters = getAllGetters(Model.prototype);
+    getterMap.set(Model, new Set(getters));
   }
 
   return mapObj(processedModelDefs, (model) => createCRUD(model));
