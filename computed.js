@@ -12,25 +12,25 @@ let _onInvalidate;
 
 export function computed(cb, { deps }) {
   let value;
-  let invalid = true;
-  const callback = (...deps) => {
-    if (invalid) {
+  let valid = false;
+  const compute = (...deps) => {
+    if (!valid) {
       value = cb(...deps);
       if (_onCompute) {
         _onCompute(value);
       }
-      invalid = false;
+      valid = true;
     } else {
-      invalid = true;
+      valid = false;
       if (_onInvalidate) {
         _onInvalidate(value);
       }
     }
   };
-  effect(callback, ...deps);
+  effect(compute, ...deps);
   return () => {
-    if (invalid) {
-      callback(...deps);
+    if (!valid) {
+      compute(...deps);
     }
     return value;
   };
